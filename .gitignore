@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# Local output and media artifacts
+output/
+*.mp4
+*.wav
+*.srt
+*.progress.json
