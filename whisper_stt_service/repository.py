@@ -126,3 +126,10 @@ class JobRepository:
             return ClaimedTask(
                 task_id=row["task_id"], job_id=row["job_id"], stage=row["stage"]
             )
+
+    def mark_task_succeeded(self, task_id: str) -> None:
+        with self.db.tx() as conn:
+            conn.execute(
+                "UPDATE tasks SET status='succeeded', finished_at=?, updated_at=? WHERE task_id=?",
+                (_now(), _now(), task_id),
+            )
