@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import uuid
 
@@ -18,6 +18,17 @@ class EnqueueResult:
     accepted: bool
     message: str
     queue_ahead: int
+
+
+@dataclass
+class ClaimedTask:
+    task_id: str
+    job_id: str
+    stage: str
+
+
+def _lease_expire(sec: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=sec)).isoformat()
 
 
 class JobRepository:
@@ -73,4 +84,45 @@ class JobRepository:
             conn.execute(
                 "UPDATE tasks SET status='claimed', started_at=?, updated_at=? WHERE job_id=? AND stage='extract'",
                 (_now(), _now(), job_id),
+            )
+
+    def claim_next(
+        self, stage: str, worker_id: str, lease_timeout_sec: int
+    ) -> ClaimedTask | None:
+        with self.db.tx() as conn:
+            row = conn.execute(
+                """
+                SELECT t.task_id, t.job_id, t.stage
+                FROM tasks t
+                LEFT JOIN tasks d ON d.task_id = t.depends_on_task_id
+                WHERE t.stage=? AND t.status='queued'
+                  AND (t.depends_on_task_id IS NULL OR d.status='succeeded')
+                ORDER BY t.created_at ASC, t.task_id ASC
+                LIMIT 1
+                """,
+                (stage,),
+            ).fetchone()
+            if row is None:
+                return None
+
+            now = _now()
+            changed = conn.execute(
+                """
+                UPDATE tasks
+                SET status='claimed', lease_owner=?, lease_expires_at=?, claimed_at=?, started_at=?, updated_at=?
+                WHERE task_id=? AND status='queued'
+                """,
+                (
+                    worker_id,
+                    _lease_expire(lease_timeout_sec),
+                    now,
+                    now,
+                    now,
+                    row["task_id"],
+                ),
+            ).rowcount
+            if changed == 0:
+                return None
+            return ClaimedTask(
+                task_id=row["task_id"], job_id=row["job_id"], stage=row["stage"]
             )
