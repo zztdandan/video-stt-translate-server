@@ -1,3 +1,5 @@
+"""内存进度存储模块（不落库）。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +9,8 @@ from threading import Lock
 
 @dataclass
 class ProgressItem:
+    """单个任务的最新进度快照。"""
+
     percent: float
     message: str
     worker_id: str
@@ -15,7 +19,11 @@ class ProgressItem:
 
 
 class ProgressStore:
+    """线程安全的任务进度存储与 TTL 清理器。"""
+
     def __init__(self, ttl_seconds: int) -> None:
+        """初始化进度保留时长与内存字典。"""
+
         self.ttl = timedelta(seconds=ttl_seconds)
         self._items: dict[str, ProgressItem] = {}
         self._lock = Lock()
@@ -28,6 +36,8 @@ class ProgressStore:
         worker_id: str,
         ts: datetime | None = None,
     ) -> None:
+        """更新指定任务的最新进度。"""
+
         now = ts or datetime.now(timezone.utc)
         with self._lock:
             self._items[task_id] = ProgressItem(
@@ -35,6 +45,8 @@ class ProgressStore:
             )
 
     def mark_done(self, task_id: str, ts: datetime | None = None) -> None:
+        """标记任务完成，并记录完成时间用于 TTL 清理。"""
+
         now = ts or datetime.now(timezone.utc)
         with self._lock:
             item = self._items.get(task_id)
@@ -43,6 +55,8 @@ class ProgressStore:
                 item.ts = now
 
     def cleanup(self, now: datetime | None = None) -> None:
+        """删除已完成且超过 TTL 的进度条目。"""
+
         ref = now or datetime.now(timezone.utc)
         with self._lock:
             expired = [
@@ -54,6 +68,8 @@ class ProgressStore:
                 self._items.pop(key, None)
 
     def snapshot(self, task_id: str) -> dict[str, dict]:
+        """返回单任务进度快照；不存在时返回空字典。"""
+
         with self._lock:
             item = self._items.get(task_id)
             if item is None:

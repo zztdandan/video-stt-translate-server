@@ -1,3 +1,8 @@
+"""流水线服务配置加载模块。
+
+该模块把 config.ini 转换成强类型 dataclass，避免业务层直接使用字符串键。
+"""
+
 from __future__ import annotations
 
 import configparser
@@ -7,6 +12,8 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class WorkerSettings:
+    """Worker 池与调度轮询配置。"""
+
     extract_workers: int
     stt_workers: int
     translate_workers: int
@@ -16,6 +23,8 @@ class WorkerSettings:
 
 @dataclass(frozen=True)
 class TimeoutSettings:
+    """各阶段执行超时与领取租约超时配置。"""
+
     extract_timeout_sec: int
     stt_timeout_sec: int
     translate_timeout_sec: int
@@ -24,6 +33,8 @@ class TimeoutSettings:
 
 @dataclass(frozen=True)
 class RetrySettings:
+    """各阶段最大重试次数配置。"""
+
     extract_max_retries: int
     stt_max_retries: int
     translate_max_retries: int
@@ -31,6 +42,8 @@ class RetrySettings:
 
 @dataclass(frozen=True)
 class RuntimeSettings:
+    """运行期路径与内存进度保留策略配置。"""
+
     db_path: Path
     progress_ttl_sec: int
     log_root: Path
@@ -38,6 +51,8 @@ class RuntimeSettings:
 
 @dataclass(frozen=True)
 class Settings:
+    """服务总配置对象（不可变）。"""
+
     workers: WorkerSettings
     timeouts: TimeoutSettings
     retry: RetrySettings
@@ -45,6 +60,12 @@ class Settings:
 
 
 def load_settings(config_path: Path) -> Settings:
+    """读取 config.ini 并返回强类型配置。
+
+    对必填字段采用失败即报错策略，避免服务在配置不完整时继续启动。
+    """
+
+    # 先读取原始配置，再按 section 映射为明确的数据结构。
     cp = configparser.ConfigParser()
     cp.read(config_path, encoding="utf-8")
     workers = WorkerSettings(

@@ -1,3 +1,5 @@
+"""SQLite 访问与事务封装模块。"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -6,15 +8,22 @@ from pathlib import Path
 
 
 class Database:
+    """提供 SQLite 连接、建表和事务上下文能力。"""
+
     def __init__(self, db_path: Path) -> None:
+        """记录数据库文件路径。"""
         self.db_path = db_path
 
     def connect(self) -> sqlite3.Connection:
+        """创建具备 Row 访问能力的连接对象。"""
+
         conn = sqlite3.connect(self.db_path, timeout=30, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
 
     def init_schema(self) -> None:
+        """初始化 jobs 与 tasks 两张核心表。"""
+
         with self.connect() as conn:
             conn.executescript(
                 """
@@ -54,13 +63,18 @@ class Database:
 
     @contextmanager
     def tx(self):
+        """开启 `BEGIN IMMEDIATE` 事务并自动提交/回滚。"""
+
         conn = self.connect()
         try:
+            # 立即获取写锁，避免并发领取时出现竞争写入冲突。
             conn.execute("BEGIN IMMEDIATE")
             yield conn
             conn.commit()
         except Exception:
+            # 任何异常均回滚，保证调用方看到一致状态。
             conn.rollback()
             raise
         finally:
+            # 无论成功或失败，最终都释放连接资源。
             conn.close()
