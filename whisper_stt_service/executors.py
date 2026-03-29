@@ -1,16 +1,111 @@
+"""三阶段执行器封装：extract / stt / translate。"""
+
 from __future__ import annotations
 
-from pathlib import Path
+import configparser
+import json
 import subprocess
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from queue import Full, Queue
+from typing import Any, Callable
+
+import requests
+
+
+@dataclass
+class SrtEntry:
+    """SRT 条目结构。"""
+
+    index: int
+    timestamp: str
+    text: str
 
 
 def preclean_output(path: Path) -> None:
+    """执行前清理：目标文件存在时先删除再重做。"""
+
     if path.exists():
         path.unlink()
 
 
-def run_extract(input_video: Path, output_wav: Path, timeout_sec: int) -> None:
+def _emit_progress(
+    progress_queue: Queue[dict[str, Any]] | None,
+    *,
+    stage: str,
+    percent: float,
+    message: str,
+    task_id: str | None,
+    worker_id: str | None,
+) -> None:
+    """把进度写入内存队列；队列满时丢弃一个旧事件后重试。"""
+
+    if progress_queue is None:
+        return
+    event = {
+        "task_id": task_id or "",
+        "stage": stage,
+        "percent": max(0.0, min(percent, 100.0)),
+        "message": message,
+        "worker_id": worker_id or "",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        progress_queue.put_nowait(event)
+    except Full:
+        try:
+            progress_queue.get_nowait()
+        except Exception:
+            pass
+        try:
+            progress_queue.put_nowait(event)
+        except Exception:
+            pass
+
+
+def _probe_duration(path: Path) -> float | None:
+    """用 ffprobe 获取媒体时长，失败时返回 None。"""
+
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        return None
+    text = proc.stdout.strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def run_extract(
+    input_video: Path,
+    output_wav: Path,
+    timeout_sec: int,
+    *,
+    progress_queue: Queue[dict[str, Any]] | None = None,
+    task_id: str | None = None,
+    worker_id: str | None = None,
+) -> None:
+    """调用 ffmpeg 抽取 16k 单声道 wav，并把进度写入队列。"""
+
+    # 启动前清理，避免断点产物影响重复执行。
     preclean_output(output_wav)
+    output_wav.parent.mkdir(parents=True, exist_ok=True)
+
+    duration = _probe_duration(input_video)
     cmd = [
         "ffmpeg",
         "-y",
@@ -21,44 +116,418 @@ def run_extract(input_video: Path, output_wav: Path, timeout_sec: int) -> None:
         "1",
         "-ar",
         "16000",
+        "-c:a",
+        "pcm_s16le",
+        "-progress",
+        "pipe:1",
+        "-nostats",
         str(output_wav),
     ]
-    subprocess.run(cmd, check=True, timeout=timeout_sec)
+    _emit_progress(
+        progress_queue,
+        stage="extract",
+        percent=0.0,
+        message="extract_started",
+        task_id=task_id,
+        worker_id=worker_id,
+    )
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    started = time.perf_counter()
+    assert proc.stdout is not None
+    for raw in proc.stdout:
+        line = raw.strip()
+        if not line.startswith("out_time_ms="):
+            continue
+        if duration is None or duration <= 0:
+            continue
+        try:
+            out_sec = float(line.split("=", 1)[1].strip()) / 1_000_000.0
+        except ValueError:
+            continue
+        _emit_progress(
+            progress_queue,
+            stage="extract",
+            percent=min(out_sec / duration, 1.0) * 100.0,
+            message="extract_running",
+            task_id=task_id,
+            worker_id=worker_id,
+        )
+        if time.perf_counter() - started > timeout_sec:
+            proc.kill()
+            raise TimeoutError("extract_timeout")
+
+    ret = proc.wait(timeout=max(timeout_sec, 1))
+    if ret != 0:
+        stderr_text = ""
+        if proc.stderr is not None:
+            stderr_text = proc.stderr.read().strip()
+        raise RuntimeError(f"ffmpeg extraction failed: {stderr_text}")
+
+    _emit_progress(
+        progress_queue,
+        stage="extract",
+        percent=100.0,
+        message="extract_done",
+        task_id=task_id,
+        worker_id=worker_id,
+    )
+
+
+def _format_timestamp(seconds: float) -> str:
+    """秒转 SRT 时间戳格式。"""
+
+    total_millis = int(max(seconds, 0.0) * 1000)
+    hours = total_millis // 3_600_000
+    minutes = (total_millis % 3_600_000) // 60_000
+    secs = (total_millis % 60_000) // 1000
+    millis = total_millis % 1000
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _resolve_runtime(device_arg: str, compute_arg: str) -> tuple[str, str]:
+    """根据 auto 配置解析运行设备与精度。"""
+
+    device = device_arg
+    if device_arg == "auto":
+        try:
+            import torch  # type: ignore
+
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            device = "cpu"
+
+    compute = compute_arg
+    if compute_arg == "auto":
+        compute = "float16" if device == "cuda" else "int8"
+    return device, compute
 
 
 def run_stt(
-    input_video: Path, output_ja_srt: Path, language: str, timeout_sec: int
+    input_video: Path,
+    output_ja_srt: Path,
+    language: str,
+    timeout_sec: int,
+    *,
+    model: str = "models/faster-whisper-small",
+    device: str = "auto",
+    compute_type: str = "auto",
+    beam_size: int = 5,
+    progress_every: int = 25,
+    progress_queue: Queue[dict[str, Any]] | None = None,
+    task_id: str | None = None,
+    worker_id: str | None = None,
 ) -> None:
+    """直接在 service 内部执行 STT，不再 `python` 调 `python`。"""
+
+    # 每次都删除旧字幕，确保结果来自本次运行。
     preclean_output(output_ja_srt)
-    cmd = [
-        "python",
-        "whisper_stt/transcribe_video.py",
-        "--input",
+    output_ja_srt.parent.mkdir(parents=True, exist_ok=True)
+
+    # 惰性导入，避免服务仅做队列查询时就加载大模型依赖。
+    from faster_whisper import WhisperModel
+
+    resolved_device, resolved_compute = _resolve_runtime(device, compute_type)
+    model_runtime = WhisperModel(
+        model,
+        device=resolved_device,
+        compute_type=resolved_compute,
+        local_files_only=True,
+    )
+
+    media_duration = _probe_duration(input_video)
+    started = time.perf_counter()
+    segments, _ = model_runtime.transcribe(
         str(input_video),
-        "--output",
-        str(output_ja_srt),
-        "--language",
-        language,
+        language=language,
+        beam_size=beam_size,
+        vad_filter=True,
+    )
+
+    _emit_progress(
+        progress_queue,
+        stage="stt",
+        percent=0.0,
+        message="stt_started",
+        task_id=task_id,
+        worker_id=worker_id,
+    )
+
+    count = 0
+    last_end = 0.0
+    with output_ja_srt.open("w", encoding="utf-8") as f:
+        for seg_no, seg in enumerate(segments, start=1):
+            text = seg.text.strip()
+            if not text:
+                continue
+            count += 1
+            last_end = float(seg.end)
+            f.write(f"{count}\n")
+            f.write(
+                f"{_format_timestamp(seg.start)} --> {_format_timestamp(seg.end)}\n"
+            )
+            f.write(f"{text}\n\n")
+
+            if (
+                seg_no % max(progress_every, 1) == 0
+                and media_duration
+                and media_duration > 0
+            ):
+                _emit_progress(
+                    progress_queue,
+                    stage="stt",
+                    percent=min(last_end / media_duration, 1.0) * 100.0,
+                    message="stt_running",
+                    task_id=task_id,
+                    worker_id=worker_id,
+                )
+
+            if time.perf_counter() - started > timeout_sec:
+                raise TimeoutError("stt_timeout")
+
+    _emit_progress(
+        progress_queue,
+        stage="stt",
+        percent=100.0,
+        message="stt_done",
+        task_id=task_id,
+        worker_id=worker_id,
+    )
+
+
+def _parse_srt(content: str) -> list[SrtEntry]:
+    """解析 SRT 文本为结构化条目。"""
+
+    blocks = [
+        b.strip() for b in content.replace("\r\n", "\n").split("\n\n") if b.strip()
     ]
-    subprocess.run(cmd, check=True, timeout=timeout_sec)
+    entries: list[SrtEntry] = []
+    for block in blocks:
+        lines = block.split("\n")
+        if len(lines) < 3:
+            continue
+        try:
+            idx = int(lines[0].strip())
+        except ValueError:
+            continue
+        entries.append(
+            SrtEntry(
+                index=idx, timestamp=lines[1].strip(), text="\n".join(lines[2:]).strip()
+            )
+        )
+    return entries
+
+
+def _dump_srt(
+    entries: list[SrtEntry], translations: dict[int, str], out_path: Path
+) -> None:
+    """按原时间轴写回翻译后的 SRT 文件。"""
+
+    with out_path.open("w", encoding="utf-8") as f:
+        for entry in entries:
+            text_zh = translations.get(entry.index, entry.text)
+            f.write(f"{entry.index}\n{entry.timestamp}\n{text_zh}\n\n")
+
+
+def _extract_json_object(text: str) -> Any:
+    """从模型返回文本中提取 JSON 对象/数组。"""
+
+    payload = text.strip()
+    if payload.startswith("```") and payload.endswith("```"):
+        lines = payload.splitlines()
+        if len(lines) >= 3:
+            payload = "\n".join(lines[1:-1]).strip()
+    if payload.startswith("json"):
+        payload = payload[4:].strip()
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        pass
+    arr_start = payload.find("[")
+    arr_end = payload.rfind("]")
+    if arr_start != -1 and arr_end > arr_start:
+        return json.loads(payload[arr_start : arr_end + 1])
+    obj_start = payload.find("{")
+    obj_end = payload.rfind("}")
+    if obj_start != -1 and obj_end > obj_start:
+        return json.loads(payload[obj_start : obj_end + 1])
+    raise RuntimeError("unable to parse JSON response")
+
+
+def _load_llm_config(config_path: Path) -> configparser.ConfigParser:
+    """加载 config.ini（若不存在则返回空配置）。"""
+
+    cfg = configparser.ConfigParser()
+    if config_path.is_file():
+        cfg.read(config_path, encoding="utf-8")
+    return cfg
+
+
+def _call_translate_api(
+    post_func: Callable[..., requests.Response],
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout_sec: int,
+    batch: list[SrtEntry],
+) -> dict[int, str]:
+    """调用 LLM 翻译单个批次并返回 id -> 中文文本映射。"""
+
+    payload_items = [{"id": e.index, "text": e.text} for e in batch]
+    system_prompt = (
+        "You are a professional subtitle translator. Translate Japanese subtitles into natural, concise "
+        "Simplified Chinese. Preserve meaning and tone. Keep line breaks when they improve readability. "
+        "Do not add explanations. Output ONLY JSON."
+    )
+    user_prompt = (
+        "Translate the following JSON array from Japanese to Simplified Chinese. "
+        "Return ONLY a JSON array with objects in the form: "
+        '{"id": <same id>, "text_zh": "..."}. Keep the same ids and same item count.\n\n'
+        f"{json.dumps(payload_items, ensure_ascii=False)}"
+    )
+    response = post_func(
+        f"{base_url.rstrip('/')}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        },
+        timeout=timeout_sec,
+    )
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    parsed = _extract_json_object(content)
+    if not isinstance(parsed, list):
+        raise ValueError("model output is not a JSON array")
+
+    mapping: dict[int, str] = {}
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("id")
+        text_zh = item.get("text_zh")
+        if isinstance(item_id, int) and isinstance(text_zh, str) and text_zh.strip():
+            mapping[item_id] = text_zh.strip()
+    expected = {e.index for e in batch}
+    if set(mapping.keys()) != expected:
+        missing = sorted(expected - set(mapping.keys()))
+        raise ValueError(f"batch translation ids mismatch, missing={missing[:10]}")
+    return mapping
 
 
 def run_translate(
-    input_ja_srt: Path, output_zh_srt: Path, config_path: Path, timeout_sec: int
+    input_ja_srt: Path,
+    output_zh_srt: Path,
+    config_path: Path,
+    timeout_sec: int,
+    *,
+    progress_queue: Queue[dict[str, Any]] | None = None,
+    task_id: str | None = None,
+    worker_id: str | None = None,
 ) -> None:
+    """直接在 service 内部执行翻译，并把进度写入队列。"""
+
+    # 先清理目标字幕与翻译进度副产物，保障可恢复可重跑。
     preclean_output(output_zh_srt)
     progress_artifact = output_zh_srt.with_suffix(
         output_zh_srt.suffix + ".progress.json"
     )
     preclean_output(progress_artifact)
-    cmd = [
-        "python",
-        "whisper_stt/translate_srt_ja_to_zh.py",
-        "--input",
-        str(input_ja_srt),
-        "--output",
-        str(output_zh_srt),
-        "--config",
-        str(config_path),
-    ]
-    subprocess.run(cmd, check=True, timeout=timeout_sec)
+
+    config = _load_llm_config(config_path)
+    base_url = config.get(
+        "llm", "base_url", fallback="https://www.right.codes/codex/v1"
+    )
+    api_key = config.get("llm", "api_key", fallback="").strip()
+    if not api_key:
+        raise RuntimeError("missing api key in config")
+    model = config.get("llm", "model", fallback="gpt-5.1-codex-mini")
+    batch_size = max(config.getint("translation", "batch_size", fallback=200), 1)
+    parallel = max(config.getint("translation", "parallel", fallback=16), 1)
+    retry = max(config.getint("translation", "retry", fallback=4), 1)
+    request_interval = max(
+        config.getfloat("translation", "request_interval", fallback=1.0), 0.0
+    )
+
+    entries = _parse_srt(input_ja_srt.read_text(encoding="utf-8"))
+    if not entries:
+        raise RuntimeError(f"no valid srt entries found: {input_ja_srt}")
+
+    _emit_progress(
+        progress_queue,
+        stage="translate",
+        percent=0.0,
+        message="translate_started",
+        task_id=task_id,
+        worker_id=worker_id,
+    )
+
+    batches = [entries[i : i + batch_size] for i in range(0, len(entries), batch_size)]
+    translations: dict[int, str] = {}
+    started = time.perf_counter()
+    session = requests.Session()
+    session.trust_env = False
+
+    for batch_no, batch in enumerate(batches, start=1):
+        last_err: Exception | None = None
+        for _attempt in range(1, retry + 1):
+            if time.perf_counter() - started > timeout_sec:
+                raise TimeoutError("translate_timeout")
+            try:
+                mapped = _call_translate_api(
+                    session.post,
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    timeout_sec=min(timeout_sec, 180),
+                    batch=batch,
+                )
+                translations.update(mapped)
+                progress_artifact.write_text(
+                    json.dumps(
+                        {str(k): v for k, v in translations.items()}, ensure_ascii=False
+                    ),
+                    encoding="utf-8",
+                )
+                _emit_progress(
+                    progress_queue,
+                    stage="translate",
+                    percent=batch_no / max(len(batches), 1) * 100.0,
+                    message="translate_running",
+                    task_id=task_id,
+                    worker_id=worker_id,
+                )
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_err = exc
+                time.sleep(min(request_interval * 2.0, 5.0))
+        else:
+            raise RuntimeError(f"translate batch failed: {last_err}")
+
+        if parallel > 0:
+            # 保留请求节流行为，避免对上游接口形成瞬时冲击。
+            time.sleep(request_interval)
+
+    _dump_srt(entries, translations, output_zh_srt)
+    _emit_progress(
+        progress_queue,
+        stage="translate",
+        percent=100.0,
+        message="translate_done",
+        task_id=task_id,
+        worker_id=worker_id,
+    )
