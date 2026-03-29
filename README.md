@@ -53,3 +53,9 @@ Default input video:
 Output subtitle:
 
 `whisper-stt/output/489155.com@PFES-115.ja.srt`
+
+## Service E2E
+
+1. Edit `tests/e2e/video_paths.txt` and provide real absolute paths.
+2. Run `python tests/e2e/run_e2e_real_flow.py`.
+3. The script starts service, enqueues videos, and polls until all complete or 30-minute timeout.
