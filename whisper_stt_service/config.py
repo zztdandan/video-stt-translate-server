@@ -47,6 +47,7 @@ class RuntimeSettings:
     db_path: Path
     progress_ttl_sec: int
     log_root: Path
+    model_path: Path
 
 
 @dataclass(frozen=True)
@@ -92,5 +93,8 @@ def load_settings(config_path: Path) -> Settings:
         db_path=Path(cp.get("runtime", "db_path")),
         progress_ttl_sec=cp.getint("runtime", "progress_ttl_sec", fallback=3600),
         log_root=Path(cp.get("runtime", "log_root")),
+        model_path=Path(
+            cp.get("runtime", "model_path", fallback="models/faster-whisper-small")
+        ),
     )
     return Settings(workers=workers, timeouts=timeouts, retry=retry, runtime=runtime)

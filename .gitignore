@@ -8,7 +8,11 @@ __pycache__/
 
 # Local output and media artifacts
 output/
+tmp/
+tests/e2e/video_paths.txt
+tests/unit/test_workers_real_media_inputs.py
 *.mp4
 *.wav
 *.srt
 *.progress.json
+config.ini

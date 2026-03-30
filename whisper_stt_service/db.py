@@ -18,6 +18,7 @@ class Database:
         """创建具备 Row 访问能力的连接对象。"""
 
         conn = sqlite3.connect(self.db_path, timeout=30, check_same_thread=False)
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -38,6 +39,8 @@ class Database:
                     updated_at TEXT NOT NULL,
                     finished_at TEXT
                 );
+                CREATE INDEX IF NOT EXISTS idx_jobs_video_created ON jobs(video_path, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at DESC);
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id TEXT PRIMARY KEY,
                     job_id TEXT NOT NULL,
@@ -58,6 +61,9 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE INDEX IF NOT EXISTS idx_tasks_stage_status_created ON tasks(stage, status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_tasks_job_stage ON tasks(job_id, stage);
+                CREATE INDEX IF NOT EXISTS idx_tasks_status_lease_exp ON tasks(status, lease_expires_at);
                 """
             )
 

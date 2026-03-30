@@ -34,6 +34,7 @@ translate_max_retries = 2
 db_path = /tmp/test.db
 progress_ttl_sec = 3600
 log_root = /tmp/logs
+model_path = /tmp/model-dir
 """.strip(),
         encoding="utf-8",
     )
@@ -43,3 +44,4 @@ log_root = /tmp/logs
     assert settings.workers.extract_workers == 2
     assert settings.workers.stt_workers == 3
     assert settings.runtime.progress_ttl_sec == 3600
+    assert str(settings.runtime.model_path) == "/tmp/model-dir"
