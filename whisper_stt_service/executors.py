@@ -24,6 +24,59 @@ class SrtEntry:
     text: str
 
 
+def _timestamp_to_seconds(ts: str) -> float:
+    """将 `HH:MM:SS,mmm` 转为秒；格式不合法时抛 ValueError。"""
+
+    hhmmss, millis = ts.split(",", 1)
+    h, m, s = hhmmss.split(":", 2)
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(millis) / 1000.0
+
+
+def _entry_start_seconds(timestamp: str) -> float:
+    """解析 SRT 时间轴起点秒数，失败时退化为 0。"""
+
+    try:
+        start_text = timestamp.split("-->", 1)[0].strip()
+        return _timestamp_to_seconds(start_text)
+    except Exception:
+        return 0.0
+
+
+def _split_entries_by_time_window(
+    entries: list[SrtEntry], window_minutes: int = 30
+) -> list[list[SrtEntry]]:
+    """按字幕起始时间切分窗口，默认每 30 分钟一个翻译批次。"""
+
+    window_sec = max(window_minutes, 1) * 60
+    grouped: dict[int, list[SrtEntry]] = {}
+    for entry in entries:
+        bucket = int(_entry_start_seconds(entry.timestamp) // window_sec)
+        grouped.setdefault(bucket, []).append(entry)
+    return [grouped[k] for k in sorted(grouped)]
+
+
+def _build_translate_messages(batch: list[SrtEntry]) -> list[dict[str, str]]:
+    """构造翻译消息，强调剧情上下文推理和全段一致性。"""
+
+    payload_items = [{"id": e.index, "text": e.text} for e in batch]
+    system_prompt = (
+        "You are a professional subtitle translator. Translate Japanese subtitles into natural, concise "
+        "Simplified Chinese. Use context and plot continuity to infer omitted subjects, keep naming and tone "
+        "consistent across this whole chunk, and avoid literal word-by-word translation. Think carefully, "
+        "but output ONLY JSON."
+    )
+    user_prompt = (
+        "Translate the following JSON array from Japanese to Simplified Chinese subtitles. "
+        "Return ONLY a JSON array with objects in the form: "
+        '{"id": <same id>, "text_zh": "..."}. Keep the same ids and same item count.\n\n'
+        f"{json.dumps(payload_items, ensure_ascii=False)}"
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def preclean_output(path: Path) -> None:
     """执行前清理：目标文件存在时先删除再重做。"""
 
@@ -380,18 +433,7 @@ def _call_translate_api(
 ) -> dict[int, str]:
     """调用 LLM 翻译单个批次并返回 id -> 中文文本映射。"""
 
-    payload_items = [{"id": e.index, "text": e.text} for e in batch]
-    system_prompt = (
-        "You are a professional subtitle translator. Translate Japanese subtitles into natural, concise "
-        "Simplified Chinese. Preserve meaning and tone. Keep line breaks when they improve readability. "
-        "Do not add explanations. Output ONLY JSON."
-    )
-    user_prompt = (
-        "Translate the following JSON array from Japanese to Simplified Chinese. "
-        "Return ONLY a JSON array with objects in the form: "
-        '{"id": <same id>, "text_zh": "..."}. Keep the same ids and same item count.\n\n'
-        f"{json.dumps(payload_items, ensure_ascii=False)}"
-    )
+    messages = _build_translate_messages(batch)
     response = post_func(
         f"{base_url.rstrip('/')}/chat/completions",
         headers={
@@ -401,10 +443,7 @@ def _call_translate_api(
         json={
             "model": model,
             "temperature": 0.2,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
         },
         timeout=timeout_sec,
     )
@@ -455,8 +494,8 @@ def run_translate(
     api_key = config.get("llm", "api_key", fallback="").strip()
     if not api_key:
         raise RuntimeError("missing api key in config")
-    model = config.get("llm", "model", fallback="gpt-5.1-codex-mini")
-    batch_size = max(config.getint("translation", "batch_size", fallback=200), 1)
+    model = config.get("llm", "model", fallback="gpt-5.4-mini")
+    chunk_minutes = max(config.getint("translation", "chunk_minutes", fallback=30), 1)
     parallel = max(config.getint("translation", "parallel", fallback=16), 1)
     retry = max(config.getint("translation", "retry", fallback=4), 1)
     request_interval = max(
@@ -476,7 +515,7 @@ def run_translate(
         worker_id=worker_id,
     )
 
-    batches = [entries[i : i + batch_size] for i in range(0, len(entries), batch_size)]
+    batches = _split_entries_by_time_window(entries, window_minutes=chunk_minutes)
     translations: dict[int, str] = {}
     started = time.perf_counter()
     session = requests.Session()

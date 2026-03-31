@@ -33,7 +33,8 @@ python whisper-stt/whisper_stt/translate_srt_ja_to_zh.py \
   --output /path/to/output.zh.srt \
   --base-url https://www.right.codes/codex/v1 \
   --api-key <key> \
-  --model gpt-5.1-codex-mini \
+  --model gpt-5.4-mini \
+  --chunk-minutes 30 \
   --parallel 16 \
   --request-interval 1
 ```
@@ -42,9 +43,14 @@ Translation stage prints dispatch/retry and a progress bar with elapsed, ETA, an
 
 Current sending strategy:
 
-- one request handles at least 200 subtitle entries
+- one request handles one 30-minute subtitle time window
 - max concurrency is 16, actual workers scale by batch count
 - dispatch interval between requests is 1 second
+
+Recommended local ASR model paths for A/B:
+
+- `/home/base/repo/video-stt-whisper-server/models/faster-whisper-large-v2`
+- `/home/base/repo/video-stt-whisper-server/models/faster-whisper-large-v3`
 
 Default input video:
 

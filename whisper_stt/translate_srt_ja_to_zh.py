@@ -57,6 +57,51 @@ def dump_srt(
             f.write(f"{text_zh}\n\n")
 
 
+def _timestamp_to_seconds(ts: str) -> float:
+    hhmmss, millis = ts.split(",", 1)
+    h, m, s = hhmmss.split(":", 2)
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(millis) / 1000.0
+
+
+def _entry_start_seconds(timestamp: str) -> float:
+    try:
+        start_text = timestamp.split("-->", 1)[0].strip()
+        return _timestamp_to_seconds(start_text)
+    except Exception:
+        return 0.0
+
+
+def _split_entries_by_time_window(
+    entries: list[SrtEntry], window_minutes: int = 30
+) -> list[list[SrtEntry]]:
+    window_sec = max(window_minutes, 1) * 60
+    grouped: dict[int, list[SrtEntry]] = {}
+    for entry in entries:
+        bucket = int(_entry_start_seconds(entry.timestamp) // window_sec)
+        grouped.setdefault(bucket, []).append(entry)
+    return [grouped[k] for k in sorted(grouped)]
+
+
+def _build_translate_messages(batch: list[SrtEntry]) -> list[dict[str, str]]:
+    payload_items = [{"id": e.index, "text": e.text} for e in batch]
+    system_prompt = (
+        "You are a professional subtitle translator. Translate Japanese subtitles into natural, concise "
+        "Simplified Chinese. Use context and plot continuity to infer omitted subjects, keep naming and tone "
+        "consistent across this whole chunk, and avoid literal word-by-word translation. Think carefully, "
+        "but output ONLY JSON."
+    )
+    user_prompt = (
+        "Translate the following JSON array from Japanese to Simplified Chinese subtitles. "
+        "Return ONLY a JSON array with objects in the form: "
+        '{"id": <same id>, "text_zh": "..."}. Keep the same ids and same item count.\n\n'
+        f"{json.dumps(payload_items, ensure_ascii=False)}"
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def extract_json_object(text: str) -> Any:
     text = text.strip()
     if text.startswith("```"):
@@ -137,18 +182,7 @@ def _call_api(
     batch: list[SrtEntry],
     timeout: int,
 ) -> dict[int, str]:
-    payload_items = [{"id": e.index, "text": e.text} for e in batch]
-    system_prompt = (
-        "You are a professional subtitle translator. Translate Japanese subtitles into natural, concise "
-        "Simplified Chinese. Preserve meaning and tone. Keep line breaks when they improve readability. "
-        "Do not add explanations. Output ONLY JSON."
-    )
-    user_prompt = (
-        "Translate the following JSON array from Japanese to Simplified Chinese. "
-        "Return ONLY a JSON array with objects in the form: "
-        '{"id": <same id>, "text_zh": "..."}. Keep the same ids and same item count.\n\n'
-        f"{json.dumps(payload_items, ensure_ascii=False)}"
-    )
+    messages = _build_translate_messages(batch)
 
     url = f"{base_url.rstrip('/')}/chat/completions"
     headers = {
@@ -158,10 +192,7 @@ def _call_api(
     data = {
         "model": model,
         "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "messages": messages,
     }
     resp = post_func(url, headers=headers, json=data, timeout=timeout)
     resp.raise_for_status()
@@ -232,6 +263,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--api-key", type=str, default=None)
     parser.add_argument("--model", type=str, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--chunk-minutes", type=int, default=None)
     parser.add_argument("--timeout", type=int, default=None)
     parser.add_argument("--retry", type=int, default=None)
     parser.add_argument("--sleep", type=float, default=None)
@@ -321,8 +353,14 @@ def main() -> int:
         raise RuntimeError(
             "missing api key: provide --api-key or set [llm] api_key in config.ini"
         )
-    model = _cfg_str(args.model, config, "llm", "model", "gpt-5.1-codex-mini")
-    batch_size = _cfg_int(args.batch_size, config, "translation", "batch_size", 200)
+    model = _cfg_str(args.model, config, "llm", "model", "gpt-5.4-mini")
+    chunk_minutes = _cfg_int(
+        args.chunk_minutes,
+        config,
+        "translation",
+        "chunk_minutes",
+        30,
+    )
     timeout = _cfg_int(args.timeout, config, "translation", "timeout", 180)
     retry = _cfg_int(args.retry, config, "translation", "retry", 4)
     sleep = _cfg_float(args.sleep, config, "translation", "sleep", 0.2)
@@ -356,11 +394,7 @@ def main() -> int:
             translations = {int(k): str(v) for k, v in existing.items()}
 
     total_entries = len(entries)
-    effective_batch_size = max(batch_size, 200)
-    all_batches = [
-        entries[i : i + effective_batch_size]
-        for i in range(0, total_entries, effective_batch_size)
-    ]
+    all_batches = _split_entries_by_time_window(entries, window_minutes=chunk_minutes)
     pending: list[tuple[int, list[SrtEntry]]] = []
     for batch_no, batch in enumerate(all_batches, start=1):
         need = [e for e in batch if e.index not in translations]
@@ -372,7 +406,7 @@ def main() -> int:
     print(
         f"SUMMARY total_entries={total_entries} already_translated={len(translations)} "
         f"total_batches={len(all_batches)} pending_batches={len(pending)} "
-        f"batch_size={effective_batch_size} workers={effective_workers} max_parallel={parallel} "
+        f"chunk_minutes={chunk_minutes} workers={effective_workers} max_parallel={parallel} "
         f"request_interval={request_interval:.2f}s",
         flush=True,
     )

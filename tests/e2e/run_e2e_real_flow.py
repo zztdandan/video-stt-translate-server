@@ -178,8 +178,8 @@ def main() -> int:
             response.raise_for_status()
             job_ids.append(response.json()["job_id"])
 
-        # 最长等待 60 分钟，覆盖大视频耗时场景。
-        deadline = time.time() + 3600
+        # 最长等待 120 分钟，覆盖大视频耗时场景。
+        deadline = time.time() + 7200
         round_no = 0
         while time.time() < deadline:
             round_no += 1
