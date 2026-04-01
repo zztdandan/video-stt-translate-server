@@ -209,6 +209,36 @@ class WorkerRuntime:
                         language=ctx.source_language,
                         timeout_sec=ctx.timeout_sec,
                         model=self.model_path,
+                        device=self.settings.stt.device,
+                        compute_type=self.settings.stt.compute_type,
+                        beam_size=self.settings.stt.beam_size,
+                        best_of=self.settings.stt.best_of,
+                        patience=self.settings.stt.patience,
+                        condition_on_previous_text=(
+                            self.settings.stt.condition_on_previous_text
+                        ),
+                        vad_filter=self.settings.stt.vad_filter,
+                        vad_threshold=self.settings.stt.vad_threshold,
+                        vad_min_speech_duration_ms=(
+                            self.settings.stt.vad_min_speech_duration_ms
+                        ),
+                        vad_max_speech_duration_s=(
+                            self.settings.stt.vad_max_speech_duration_s
+                        ),
+                        vad_min_silence_duration_ms=(
+                            self.settings.stt.vad_min_silence_duration_ms
+                        ),
+                        vad_speech_pad_ms=self.settings.stt.vad_speech_pad_ms,
+                        no_speech_threshold=self.settings.stt.no_speech_threshold,
+                        compression_ratio_threshold=(
+                            self.settings.stt.compression_ratio_threshold
+                        ),
+                        log_prob_threshold=self.settings.stt.log_prob_threshold,
+                        hallucination_silence_threshold=(
+                            self.settings.stt.hallucination_silence_threshold
+                        ),
+                        initial_prompt=self.settings.stt.initial_prompt,
+                        hotwords=self.settings.stt.hotwords,
                         progress_queue=self._progress_queue,
                         task_id=ctx.task_id,
                         worker_id=worker_id,

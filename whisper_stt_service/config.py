@@ -51,6 +51,30 @@ class RuntimeSettings:
 
 
 @dataclass(frozen=True)
+class SttSettings:
+    """STT 阶段转写参数配置。"""
+
+    device: str
+    compute_type: str
+    beam_size: int
+    best_of: int
+    patience: float
+    condition_on_previous_text: bool
+    vad_filter: bool
+    vad_threshold: float
+    vad_min_speech_duration_ms: int
+    vad_max_speech_duration_s: float
+    vad_min_silence_duration_ms: int
+    vad_speech_pad_ms: int
+    no_speech_threshold: float
+    compression_ratio_threshold: float
+    log_prob_threshold: float
+    hallucination_silence_threshold: float
+    initial_prompt: str
+    hotwords: str
+
+
+@dataclass(frozen=True)
 class Settings:
     """服务总配置对象（不可变）。"""
 
@@ -58,6 +82,7 @@ class Settings:
     timeouts: TimeoutSettings
     retry: RetrySettings
     runtime: RuntimeSettings
+    stt: SttSettings
 
 
 def load_settings(config_path: Path) -> Settings:
@@ -97,4 +122,46 @@ def load_settings(config_path: Path) -> Settings:
             cp.get("runtime", "model_path", fallback="models/faster-whisper-small")
         ),
     )
-    return Settings(workers=workers, timeouts=timeouts, retry=retry, runtime=runtime)
+    stt = SttSettings(
+        device=cp.get("stt", "device", fallback="auto"),
+        compute_type=cp.get("stt", "compute_type", fallback="auto"),
+        beam_size=max(cp.getint("stt", "beam_size", fallback=5), 1),
+        best_of=max(cp.getint("stt", "best_of", fallback=5), 1),
+        patience=max(cp.getfloat("stt", "patience", fallback=1.0), 0.1),
+        condition_on_previous_text=cp.getboolean(
+            "stt", "condition_on_previous_text", fallback=False
+        ),
+        vad_filter=cp.getboolean("stt", "vad_filter", fallback=True),
+        vad_threshold=min(
+            max(cp.getfloat("stt", "vad_threshold", fallback=0.45), 0.01), 0.99
+        ),
+        vad_min_speech_duration_ms=max(
+            cp.getint("stt", "vad_min_speech_duration_ms", fallback=200), 50
+        ),
+        vad_max_speech_duration_s=max(
+            cp.getfloat("stt", "vad_max_speech_duration_s", fallback=18.0), 1.0
+        ),
+        vad_min_silence_duration_ms=max(
+            cp.getint("stt", "vad_min_silence_duration_ms", fallback=700), 50
+        ),
+        vad_speech_pad_ms=max(cp.getint("stt", "vad_speech_pad_ms", fallback=300), 0),
+        no_speech_threshold=min(
+            max(cp.getfloat("stt", "no_speech_threshold", fallback=0.6), 0.01), 0.99
+        ),
+        compression_ratio_threshold=max(
+            cp.getfloat("stt", "compression_ratio_threshold", fallback=2.2), 0.1
+        ),
+        log_prob_threshold=cp.getfloat("stt", "log_prob_threshold", fallback=-1.0),
+        hallucination_silence_threshold=max(
+            cp.getfloat("stt", "hallucination_silence_threshold", fallback=1.5), 0.0
+        ),
+        initial_prompt=cp.get("stt", "initial_prompt", fallback="").strip(),
+        hotwords=cp.get("stt", "hotwords", fallback="").strip(),
+    )
+    return Settings(
+        workers=workers,
+        timeouts=timeouts,
+        retry=retry,
+        runtime=runtime,
+        stt=stt,
+    )

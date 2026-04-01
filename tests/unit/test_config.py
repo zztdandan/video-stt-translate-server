@@ -35,6 +35,13 @@ db_path = /tmp/test.db
 progress_ttl_sec = 3600
 log_root = /tmp/logs
 model_path = /tmp/model-dir
+
+[stt]
+beam_size = 6
+vad_threshold = 0.4
+condition_on_previous_text = false
+initial_prompt = 
+hotwords = 東京タワー, 田中
 """.strip(),
         encoding="utf-8",
     )
@@ -45,3 +52,8 @@ model_path = /tmp/model-dir
     assert settings.workers.stt_workers == 3
     assert settings.runtime.progress_ttl_sec == 3600
     assert str(settings.runtime.model_path) == "/tmp/model-dir"
+    assert settings.stt.beam_size == 6
+    assert settings.stt.vad_threshold == 0.4
+    assert settings.stt.condition_on_previous_text is False
+    assert settings.stt.initial_prompt == ""
+    assert settings.stt.hotwords == "東京タワー, 田中"

@@ -368,6 +368,21 @@ def run_stt(
     device: str = "auto",
     compute_type: str = "auto",
     beam_size: int = 5,
+    best_of: int = 5,
+    patience: float = 1.0,
+    condition_on_previous_text: bool = False,
+    vad_filter: bool = True,
+    vad_threshold: float = 0.45,
+    vad_min_speech_duration_ms: int = 200,
+    vad_max_speech_duration_s: float = 18.0,
+    vad_min_silence_duration_ms: int = 700,
+    vad_speech_pad_ms: int = 300,
+    no_speech_threshold: float = 0.6,
+    compression_ratio_threshold: float = 2.2,
+    log_prob_threshold: float = -1.0,
+    hallucination_silence_threshold: float = 1.5,
+    initial_prompt: str = "",
+    hotwords: str = "",
     progress_every: int = 25,
     progress_queue: Queue[dict[str, Any]] | None = None,
     task_id: str | None = None,
@@ -392,11 +407,33 @@ def run_stt(
 
     media_duration = _probe_duration(input_video)
     started = time.perf_counter()
+    transcribe_kwargs: dict[str, Any] = {
+        "language": language,
+        "beam_size": max(beam_size, 1),
+        "best_of": max(best_of, 1),
+        "patience": max(patience, 0.1),
+        "condition_on_previous_text": condition_on_previous_text,
+        "vad_filter": vad_filter,
+        "vad_parameters": {
+            "threshold": min(max(vad_threshold, 0.01), 0.99),
+            "min_speech_duration_ms": max(vad_min_speech_duration_ms, 50),
+            "max_speech_duration_s": max(vad_max_speech_duration_s, 1.0),
+            "min_silence_duration_ms": max(vad_min_silence_duration_ms, 50),
+            "speech_pad_ms": max(vad_speech_pad_ms, 0),
+        },
+        "no_speech_threshold": min(max(no_speech_threshold, 0.01), 0.99),
+        "compression_ratio_threshold": max(compression_ratio_threshold, 0.1),
+        "log_prob_threshold": log_prob_threshold,
+        "hallucination_silence_threshold": max(hallucination_silence_threshold, 0.0),
+    }
+    if initial_prompt.strip():
+        transcribe_kwargs["initial_prompt"] = initial_prompt.strip()
+    if hotwords.strip():
+        transcribe_kwargs["hotwords"] = hotwords.strip()
+
     segments, _ = model_runtime.transcribe(
         str(input_video),
-        language=language,
-        beam_size=beam_size,
-        vad_filter=True,
+        **transcribe_kwargs,
     )
 
     _emit_progress(
