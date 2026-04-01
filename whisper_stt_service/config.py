@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import configparser
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -83,6 +84,67 @@ class Settings:
     retry: RetrySettings
     runtime: RuntimeSettings
     stt: SttSettings
+
+
+# 启动前必须存在的配置项（按 section/option 列举）。
+REQUIRED_CONFIG_OPTIONS: dict[str, tuple[str, ...]] = {
+    "workers": (
+        "extract_workers",
+        "stt_workers",
+        "translate_workers",
+    ),
+    "timeouts": (
+        "extract_timeout_sec",
+        "stt_timeout_sec",
+        "translate_timeout_sec",
+        "lease_timeout_sec",
+    ),
+    "retry": (
+        "extract_max_retries",
+        "stt_max_retries",
+        "translate_max_retries",
+    ),
+    "runtime": (
+        "db_path",
+        "log_root",
+        "model_path",
+    ),
+    "llm": (
+        "base_url",
+        "api_key",
+        "model",
+    ),
+}
+
+
+def ensure_config_file(config_path: Path, example_path: Path) -> bool:
+    """当目标配置不存在时，按 example 自动创建并返回 True。"""
+
+    if config_path.exists():
+        return False
+    if not example_path.is_file():
+        raise FileNotFoundError(f"config example not found: {example_path}")
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(example_path, config_path)
+    return True
+
+
+def find_missing_required_fields(config_path: Path) -> dict[str, list[str]]:
+    """检测配置文件缺失的 section/option，供启动日志输出。"""
+
+    cp = configparser.ConfigParser()
+    cp.read(config_path, encoding="utf-8")
+    missing: dict[str, list[str]] = {}
+    for section, options in REQUIRED_CONFIG_OPTIONS.items():
+        if not cp.has_section(section):
+            missing[section] = list(options)
+            continue
+        missing_options = [
+            option for option in options if not cp.has_option(section, option)
+        ]
+        if missing_options:
+            missing[section] = missing_options
+    return missing
 
 
 def load_settings(config_path: Path) -> Settings:

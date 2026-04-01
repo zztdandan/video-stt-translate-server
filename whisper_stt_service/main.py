@@ -3,23 +3,52 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
 import os
 from pathlib import Path
 
 from fastapi import FastAPI
 
 from whisper_stt_service.api import create_app
-from whisper_stt_service.config import Settings, load_settings
+from whisper_stt_service.config import (
+    Settings,
+    ensure_config_file,
+    find_missing_required_fields,
+    load_settings,
+)
 from whisper_stt_service.db import Database
 from whisper_stt_service.progress import ProgressStore
 from whisper_stt_service.repository import JobRepository
 from whisper_stt_service.workers import WorkerRuntime
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 def _resolve_settings() -> tuple[Settings, Path]:
     """解析服务配置文件路径并加载配置。"""
 
     config_path = Path(os.getenv("WHISPER_STT_CONFIG", "config.ini")).resolve()
+    default_example_path = Path(__file__).resolve().parent.parent / "config.example.ini"
+    example_path = config_path.with_name("config.example.ini")
+    if not example_path.is_file():
+        # 支持自定义 WHISPER_STT_CONFIG 路径时回退到仓库内默认模板。
+        example_path = default_example_path
+    if ensure_config_file(config_path=config_path, example_path=example_path):
+        LOGGER.warning(
+            "config file not found, created default from example: %s",
+            config_path,
+        )
+
+    missing_fields = find_missing_required_fields(config_path)
+    if missing_fields:
+        detail = ", ".join(
+            f"{section}.{option}"
+            for section, options in missing_fields.items()
+            for option in options
+        )
+        LOGGER.error("missing required config entries: %s", detail)
+
     settings = load_settings(config_path)
     return settings, config_path
 

@@ -1,67 +1,114 @@
-# whisper-stt
+# video-stt-translate-server v0.1.0
 
-Whisper-only STT subproject for full-video transcription to SRT.
+Whisper STT + translation service for batch video processing.
 
-This subproject **reuses the root shared venv** at `/.venv` and does not create a separate environment.
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-## Usage
+## What this release includes
 
-From repository root:
+- A locally runnable CLI conversion flow under `whisper_stt/`.
+- A REST service that can be started for API access under `whisper_stt_service/`.
+- An end-to-end verification flow under `tests/e2e/run_e2e_real_flow.py` to validate behavior and API endpoints.
+
+## Project layout
+
+- `whisper_stt_service/`: queue-based service (extract -> stt -> translate).
+- `whisper_stt/`: standalone scripts (`transcribe_video.py`, `translate_srt_ja_to_zh.py`).
+- `tests/`: unit/e2e tests.
+
+## Requirements
+
+- Python `>=3.10`
+- `ffmpeg` and `ffprobe` in `PATH`
+- A local Faster-Whisper model directory
+
+Recommended model variants:
+
+- `faster-whisper-large-v2`
+- `faster-whisper-large-v3`
+- `faster-whisper-large-v3-turbo`
+
+Use your own local model path in `config.ini` (`runtime.model_path`) or via environment variable `WHISPER_STT_MODEL`.
+
+## Setup with uv
 
 ```bash
-bash whisper-stt/scripts/run_video_ja_srt.sh
+uv sync --group dev
 ```
 
-Runtime defaults:
+## Configuration
 
-- `DEVICE=auto` (prefer CUDA when available)
-- `COMPUTE_TYPE=auto` (`float16` on CUDA, `int8` on CPU)
-- `PREEXTRACT_WAV=true` (extract 16k mono WAV first)
+1. Keep `config.example.ini` in repo (tracked file).
+2. Your local runtime config is `config.ini` (ignored by git).
+3. On startup:
+   - if `config.ini` does not exist, the service auto-creates it from `config.example.ini`.
+   - if required fields are missing, logs print entries in `section.option` format.
 
-The script prints extraction/transcription progress with:
+Required config fields checked at startup:
 
-- progress bar
-- elapsed time
-- ETA
-- expected finish time
+- `workers.extract_workers`
+- `workers.stt_workers`
+- `workers.translate_workers`
+- `timeouts.extract_timeout_sec`
+- `timeouts.stt_timeout_sec`
+- `timeouts.translate_timeout_sec`
+- `timeouts.lease_timeout_sec`
+- `retry.extract_max_retries`
+- `retry.stt_max_retries`
+- `retry.translate_max_retries`
+- `runtime.db_path`
+- `runtime.log_root`
+- `runtime.model_path`
+- `llm.base_url`
+- `llm.api_key`
+- `llm.model`
 
-## Translation (JA -> ZH)
+Example startup log messages:
+
+- `config file not found, created default from example: /abs/path/config.ini`
+- `missing required config entries: llm.api_key, runtime.model_path`
+
+## Usage mode 1: Run by scripts (CLI conversion)
+
+Use the built-in scripts for local video processing:
 
 ```bash
-python whisper-stt/whisper_stt/translate_srt_ja_to_zh.py \
-  --input /path/to/input.ja.srt \
-  --output /path/to/output.zh.srt \
-  --base-url https://www.right.codes/codex/v1 \
-  --api-key <key> \
-  --model gpt-5.4-mini \
-  --chunk-minutes 30 \
-  --parallel 16 \
-  --request-interval 1
+bash scripts/run_video_ja_srt.sh
+bash scripts/run_video_ja_zh.sh
 ```
 
-Translation stage prints dispatch/retry and a progress bar with elapsed, ETA, and finish time.
+Manual CLI examples:
 
-Current sending strategy:
+```bash
+uv run python whisper_stt/transcribe_video.py --help
+uv run python whisper_stt/translate_srt_ja_to_zh.py --help
+```
 
-- one request handles one 30-minute subtitle time window
-- max concurrency is 16, actual workers scale by batch count
-- dispatch interval between requests is 1 second
+## Usage mode 2: Start REST service
 
-Recommended local ASR model paths for A/B:
+```bash
+uv run uvicorn whisper_stt_service.main:app --host 0.0.0.0 --port 18000
+```
 
-- `/home/base/repo/video-stt-whisper-server/models/faster-whisper-large-v2`
-- `/home/base/repo/video-stt-whisper-server/models/faster-whisper-large-v3`
+Optional config path override:
 
-Default input video:
+```bash
+WHISPER_STT_CONFIG=/abs/path/config.ini uv run uvicorn whisper_stt_service.main:app --host 0.0.0.0 --port 18000
+```
 
-`/srv/media/jellyfin/JELLYFIN/JAV/atmp/115_downloads/PFES-115/489155.com@PFES-115.mp4`
+## Usage mode 3: Configure and run E2E test
 
-Output subtitle:
+1. Edit `tests/e2e/video_paths.txt` and provide real absolute video paths.
+2. Start the E2E driver:
 
-`whisper-stt/output/489155.com@PFES-115.ja.srt`
+```bash
+uv run python tests/e2e/run_e2e_real_flow.py
+```
 
-## Service E2E
+The script starts the service, submits jobs through REST APIs, and polls job states until completion (or timeout), so you can validate the full pipeline and interface behavior.
 
-1. Edit `tests/e2e/video_paths.txt` and provide real absolute paths.
-2. Run `python tests/e2e/run_e2e_real_flow.py`.
-3. The script starts service, enqueues videos, and polls until all complete or 30-minute timeout.
+## Tests
+
+```bash
+uv run pytest -q
+```

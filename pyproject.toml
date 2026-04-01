@@ -1,0 +1,22 @@
+[project]
+name = "video-stt-translate-server"
+version = "0.1.0"
+description = "Whisper STT + translation service for queued video processing"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110.0",
+    "faster-whisper>=1.0.3",
+    "pydantic>=2.7.0",
+    "requests>=2.31.0",
+    "uvicorn>=0.29.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
