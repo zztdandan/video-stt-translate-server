@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import configparser
 import json
+import logging
+import os
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -13,6 +16,9 @@ from queue import Full, Queue
 from typing import Any, Callable
 
 import requests
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,10 +84,100 @@ def _build_translate_messages(batch: list[SrtEntry]) -> list[dict[str, str]]:
 
 
 def preclean_output(path: Path) -> None:
-    """执行前清理：目标文件存在时先删除再重做。"""
+    """执行前清理：组合多种策略，尽可能释放目标输出路径。"""
 
-    if path.exists():
-        path.unlink()
+    failures: list[str] = []
+
+    def _record_failure(step: str, exc: Exception) -> None:
+        failures.append(f"{step}: {exc.__class__.__name__}: {exc}")
+
+    def _run_silent_rm(target: Path, recursive: bool = False) -> int:
+        args = ["rm", "-f"]
+        if recursive:
+            args.append("-r")
+        args.extend(["--", str(target)])
+        proc = subprocess.run(
+            args,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return proc.returncode
+
+    def _path_lexists(target: Path) -> bool:
+        try:
+            return os.path.lexists(target)
+        except Exception:
+            return target.exists()
+
+    # SMB 挂载下可能出现 “ls 可见但路径操作报不存在” 的残留目录项。
+    # 先执行 rm，再走 Python 与系统调用多轮清理，双保险降低 ffmpeg 输出冲突概率。
+    for attempt in range(1, 6):
+        # 第一层：直接走 rm，兼容网络文件系统上“可见但 stat 异常”的目录项。
+        try:
+            rc = _run_silent_rm(path, recursive=True)
+            if rc != 0:
+                failures.append(f"rm: returncode={rc}")
+        except Exception as exc:
+            _record_failure("rm", exc)
+
+        # 第二层：尝试修正权限后删除，兼容只读位阻塞。
+        try:
+            path.chmod(0o666)
+        except Exception as exc:
+            _record_failure("chmod", exc)
+
+        # 第三层：Python 侧按类型删除，覆盖文件/目录/符号链接。
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+        except Exception as exc:
+            _record_failure("python_unlink", exc)
+
+        # 第四层：直接系统调用兜底。
+        try:
+            os.remove(path)
+        except Exception as exc:
+            _record_failure("os.remove", exc)
+        try:
+            os.rmdir(path)
+        except Exception as exc:
+            _record_failure("os.rmdir", exc)
+
+        # 第五层：路径仍被占用时，先改名让原目标路径可复用，再后台清理墓碑文件。
+        if _path_lexists(path):
+            tombstone = path.with_name(f".{path.name}.preclean.{time.time_ns()}")
+            try:
+                os.replace(path, tombstone)
+                try:
+                    rc = _run_silent_rm(tombstone, recursive=True)
+                    if rc != 0:
+                        failures.append(f"rm_tombstone: returncode={rc}")
+                except Exception as exc:
+                    _record_failure("rm_tombstone", exc)
+                try:
+                    if tombstone.is_dir() and not tombstone.is_symlink():
+                        shutil.rmtree(tombstone, ignore_errors=True)
+                    else:
+                        tombstone.unlink(missing_ok=True)
+                except Exception as exc:
+                    _record_failure("python_unlink_tombstone", exc)
+            except Exception as exc:
+                _record_failure("os.replace_tombstone", exc)
+
+        if not _path_lexists(path):
+            return
+        if attempt == 5:
+            logger.error(
+                "preclean_output failed, target remains: path=%s failures=%s",
+                path,
+                " | ".join(failures) if failures else "unknown",
+            )
+        time.sleep(0.05)
+
+    # 清理失败不应阻断后续流程，让 ffmpeg 自行报告可复现错误。
 
 
 def _emit_progress(
