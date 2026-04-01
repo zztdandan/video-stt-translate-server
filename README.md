@@ -4,6 +4,15 @@ Whisper STT + translation service for batch video processing.
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+## Project overview 
+
+This project is a fully local movie subtitle translation system.
+
+- **CLI edition**: run directly from command line for single videos or small batches.
+- **Service edition**: task-batched, pipeline-oriented scheduling for large workloads, with parallel CPU/GPU utilization.
+
+If you are new to the project, start with the CLI path to validate model/runtime settings, then move to the service path for large-scale processing.
+
 ## What this release includes
 
 - A locally runnable CLI conversion flow under `whisper_stt/`.
@@ -112,3 +121,34 @@ The script starts the service, submits jobs through REST APIs, and polls job sta
 ```bash
 uv run pytest -q
 ```
+
+## Roadmap
+
+### Implemented
+
+- Service runtime is available (REST APIs + background workers).
+- Highly controllable multi-task pipeline scheduling is available for stepwise large-batch subtitle translation.
+- Real-time task progress querying and status polling are available.
+
+### Planned
+
+- MCP service capability for standard protocol integration and tooling interoperability.
+- Agent skill integration so coding agents can use this service in a stable way.
+- Operation and visualization UI (web console) for submission, monitoring, and troubleshooting.
+- Containerization plan (Docker / Compose) with reproducible deployment workflow.
+- Better observability (structured logs, metrics, alerts) and production operations support.
+- Permission and quota controls (multi-user isolation, concurrency limits, resource governance).
+
+## Contributing
+
+Issues and pull requests are welcome. Before submitting, run:
+
+```bash
+uv run pytest -q
+```
+
+Please include change summary, test results, and relevant runtime logs/screenshots.
+
+## License
+
+This project follows the repository license. See `LICENSE`.

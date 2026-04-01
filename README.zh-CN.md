@@ -4,6 +4,15 @@ Whisper STT + translation service for batch video processing.
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+## 项目介绍
+
+本项目是一个全本地化的电影字幕翻译服务项目。
+
+- **轻量 CLI 版本**：可直接在本地命令行运行，适合单视频或小批量快速处理。
+- **服务化版本**：支持分任务、分阶段、流水线式批次调度，可并行利用 CPU/GPU 资源，面向大量视频翻译场景。
+
+如果你是第一次使用，建议先走 CLI 路径确认模型与参数，再切换到服务化路径进行批处理。
+
 ## 这个 0.1.0 版本包含什么
 
 - 提供一套可本地运行的 CLI 转化方案，位于 `whisper_stt/`。
@@ -112,3 +121,34 @@ uv run python tests/e2e/run_e2e_real_flow.py
 ```bash
 uv run pytest -q
 ```
+
+## Roadmap
+
+### 已完成
+
+- 已实现服务化能力（REST API + 后台 worker）。
+- 已实现高度可控的多任务流水线式调度，可分步骤处理大量电影翻译任务。
+- 已实现实时任务进度查看与状态轮询。
+
+### 规划中
+
+- MCP 服务化能力，便于标准协议接入与工具互操作。
+- Agent Skill 方案，用于让 agent 更稳定地调用服务能力。
+- 操作与展示界面（Web 控制台），用于任务提交、监控与排障。
+- 容器化交付（Docker / Compose）与可复现部署流程。
+- 可观测性增强（结构化日志、指标、告警）与生产级运维支持。
+- 权限与配额能力（多用户隔离、并发限制、资源治理）。
+
+## Contributing
+
+欢迎 Issue 与 PR。建议在提交前完成：
+
+```bash
+uv run pytest -q
+```
+
+提交时请附上变更说明、测试结果和必要的运行截图/日志。
+
+## License
+
+本项目遵循仓库内许可证文件，详见 `LICENSE`。
