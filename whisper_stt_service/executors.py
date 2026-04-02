@@ -607,6 +607,8 @@ def run_translate(
     config_path: Path,
     timeout_sec: int,
     *,
+    chunk_minutes: int | None = None,
+    retry: int | None = None,
     progress_queue: Queue[dict[str, Any]] | None = None,
     task_id: str | None = None,
     worker_id: str | None = None,
@@ -628,12 +630,17 @@ def run_translate(
     if not api_key:
         raise RuntimeError("missing api key in config")
     model = config.get("llm", "model", fallback="gpt-5.4-mini")
-    chunk_minutes = max(config.getint("translation", "chunk_minutes", fallback=30), 1)
+    cfg_chunk_minutes = max(
+        config.getint("translation", "chunk_minutes", fallback=30), 1
+    )
     parallel = max(config.getint("translation", "parallel", fallback=16), 1)
-    retry = max(config.getint("translation", "retry", fallback=4), 1)
+    cfg_retry = max(config.getint("translation", "retry", fallback=4), 1)
     request_interval = max(
         config.getfloat("translation", "request_interval", fallback=1.0), 0.0
     )
+
+    effective_chunk_minutes = max(int(chunk_minutes or cfg_chunk_minutes), 1)
+    effective_retry = max(int(retry or cfg_retry), 1)
 
     entries = _parse_srt(input_ja_srt.read_text(encoding="utf-8"))
     if not entries:
@@ -648,7 +655,9 @@ def run_translate(
         worker_id=worker_id,
     )
 
-    batches = _split_entries_by_time_window(entries, window_minutes=chunk_minutes)
+    batches = _split_entries_by_time_window(
+        entries, window_minutes=effective_chunk_minutes
+    )
     translations: dict[int, str] = {}
     started = time.perf_counter()
     session = requests.Session()
@@ -656,7 +665,7 @@ def run_translate(
 
     for batch_no, batch in enumerate(batches, start=1):
         last_err: Exception | None = None
-        for _attempt in range(1, retry + 1):
+        for _attempt in range(1, effective_retry + 1):
             if time.perf_counter() - started > timeout_sec:
                 raise TimeoutError("translate_timeout")
             try:

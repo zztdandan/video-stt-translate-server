@@ -31,4 +31,5 @@ def test_preclean_output_always_calls_rm_force(monkeypatch) -> None:
     preclean_output(Path("/tmp/not-exist.wav"))
 
     assert called
-    assert called[0][:3] == ["rm", "-f", "--"]
+    assert called[0][0:2] == ["rm", "-f"]
+    assert called[0][-2] == "--"

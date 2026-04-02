@@ -67,6 +67,74 @@ class Database:
                 """
             )
 
+            self._ensure_column(conn, "jobs", "dag_json TEXT", "dag_json")
+            self._ensure_column(conn, "jobs", "job_config_json TEXT", "job_config_json")
+            self._ensure_column(
+                conn, "tasks", "task_config_json TEXT", "task_config_json"
+            )
+
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS jobs_archive (
+                    job_id TEXT PRIMARY KEY,
+                    video_path TEXT NOT NULL,
+                    source_language TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    output_ja_path TEXT NOT NULL,
+                    output_zh_path TEXT NOT NULL,
+                    dag_json TEXT,
+                    job_config_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    archived_at TEXT NOT NULL,
+                    archive_reason TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobs_archive_video_created ON jobs_archive(video_path, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_jobs_archive_status_created ON jobs_archive(status, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS tasks_archive (
+                    task_id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    depends_on_task_id TEXT,
+                    task_config_json TEXT,
+                    attempt INTEGER NOT NULL DEFAULT 0,
+                    max_retries INTEGER NOT NULL,
+                    timeout_sec INTEGER NOT NULL,
+                    lease_owner TEXT,
+                    lease_expires_at TEXT,
+                    claimed_at TEXT,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    last_error TEXT,
+                    log_dir TEXT NOT NULL,
+                    log_file TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    archived_at TEXT NOT NULL,
+                    archive_reason TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_tasks_archive_job_stage ON tasks_archive(job_id, stage);
+                CREATE INDEX IF NOT EXISTS idx_tasks_archive_stage_status_created ON tasks_archive(stage, status, created_at);
+                """
+            )
+
+    def _ensure_column(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        column_sql: str,
+        column_name: str,
+    ) -> None:
+        """在旧库缺列时执行增量补齐。"""
+
+        columns = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column_name in columns:
+            return
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_sql}")
+
     @contextmanager
     def tx(self):
         """开启 `BEGIN IMMEDIATE` 事务并自动提交/回滚。"""

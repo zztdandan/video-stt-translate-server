@@ -18,6 +18,14 @@ class CreateJobReq(BaseModel):
 
     video_path: str
     language: str
+    dag: dict | None = None
+    job_config: dict | None = None
+
+
+class ArchiveJobReq(BaseModel):
+    """归档请求体。"""
+
+    reason: str = "manual_archive"
 
 
 def _get_repo(app: FastAPI) -> JobRepository:
@@ -74,12 +82,22 @@ def create_app(
         if not path.is_absolute() or not path.is_file():
             raise HTTPException(status_code=400, detail="video_path_not_found")
         repo_impl = _get_repo(app)
-        result = repo_impl.enqueue(video_path=req.video_path, language=req.language)
+        try:
+            result = repo_impl.enqueue(
+                video_path=req.video_path,
+                language=req.language,
+                dag=req.dag,
+                job_config=req.job_config,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
             "job_id": result.job_id,
             "accepted": result.accepted,
             "queue_ahead": result.queue_ahead,
             "message": result.message,
+            "plan_mode": result.plan_mode,
+            "stages": result.stages,
         }
 
     @app.get("/jobs/{job_id}")
@@ -108,6 +126,19 @@ def create_app(
                 if task["task_id"] in snap:
                     task["progress"] = snap[task["task_id"]]
         return item
+
+    @app.post("/jobs/{job_id}/archive")
+    def archive_job(job_id: str, req: ArchiveJobReq):
+        """显式归档指定 job，释放路径占用资格。"""
+
+        repo_impl = _get_repo(app)
+        try:
+            return repo_impl.archive_job(job_id=job_id, reason=req.reason)
+        except ValueError as exc:
+            detail = str(exc)
+            if detail == "job_not_found":
+                raise HTTPException(status_code=404, detail=detail) from exc
+            raise HTTPException(status_code=409, detail=detail) from exc
 
     @app.get("/jobs/by-path")
     def by_path(video_path: str):

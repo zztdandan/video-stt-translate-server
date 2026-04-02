@@ -85,6 +85,33 @@ def build_app() -> FastAPI:
             "stt": settings.timeouts.stt_timeout_sec,
             "translate": settings.timeouts.translate_timeout_sec,
         },
+        stage_effective_defaults={
+            "extract": {},
+            "stt": {
+                "device": settings.stt.device,
+                "compute_type": settings.stt.compute_type,
+                "beam_size": settings.stt.beam_size,
+                "best_of": settings.stt.best_of,
+                "patience": settings.stt.patience,
+                "condition_on_previous_text": settings.stt.condition_on_previous_text,
+                "vad_filter": settings.stt.vad_filter,
+                "vad_threshold": settings.stt.vad_threshold,
+                "vad_min_speech_duration_ms": settings.stt.vad_min_speech_duration_ms,
+                "vad_max_speech_duration_s": settings.stt.vad_max_speech_duration_s,
+                "vad_min_silence_duration_ms": settings.stt.vad_min_silence_duration_ms,
+                "vad_speech_pad_ms": settings.stt.vad_speech_pad_ms,
+                "no_speech_threshold": settings.stt.no_speech_threshold,
+                "compression_ratio_threshold": settings.stt.compression_ratio_threshold,
+                "log_prob_threshold": settings.stt.log_prob_threshold,
+                "hallucination_silence_threshold": settings.stt.hallucination_silence_threshold,
+                "initial_prompt": settings.stt.initial_prompt,
+                "hotwords": settings.stt.hotwords,
+            },
+            "translate": {
+                "chunk_minutes": 30,
+                "retry": 4,
+            },
+        },
         log_root=log_root,
     )
     progress_store = ProgressStore(settings.runtime.progress_ttl_sec)

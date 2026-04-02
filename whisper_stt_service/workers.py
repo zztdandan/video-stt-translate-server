@@ -176,6 +176,11 @@ class WorkerRuntime:
                 self.repo.mark_task_failed(claimed.task_id, "task_context_not_found")
                 continue
 
+            task_cfg = ctx.task_config.get("effective_config")
+            if not isinstance(task_cfg, dict):
+                self.repo.mark_task_failed(claimed.task_id, "invalid_task_config")
+                continue
+
             self._write_task_log(
                 log_file=ctx.log_file,
                 job_id=ctx.job_id,
@@ -197,7 +202,7 @@ class WorkerRuntime:
                     run_extract(
                         Path(ctx.video_path),
                         out_wav,
-                        ctx.timeout_sec,
+                        int(task_cfg.get("timeout_sec", ctx.timeout_sec)),
                         progress_queue=self._progress_queue,
                         task_id=ctx.task_id,
                         worker_id=worker_id,
@@ -207,38 +212,90 @@ class WorkerRuntime:
                         Path(ctx.video_path),
                         Path(ctx.output_ja_path),
                         language=ctx.source_language,
-                        timeout_sec=ctx.timeout_sec,
+                        timeout_sec=int(task_cfg.get("timeout_sec", ctx.timeout_sec)),
                         model=self.model_path,
-                        device=self.settings.stt.device,
-                        compute_type=self.settings.stt.compute_type,
-                        beam_size=self.settings.stt.beam_size,
-                        best_of=self.settings.stt.best_of,
-                        patience=self.settings.stt.patience,
+                        device=str(task_cfg.get("device", self.settings.stt.device)),
+                        compute_type=str(
+                            task_cfg.get("compute_type", self.settings.stt.compute_type)
+                        ),
+                        beam_size=int(
+                            task_cfg.get("beam_size", self.settings.stt.beam_size)
+                        ),
+                        best_of=int(task_cfg.get("best_of", self.settings.stt.best_of)),
+                        patience=float(
+                            task_cfg.get("patience", self.settings.stt.patience)
+                        ),
                         condition_on_previous_text=(
-                            self.settings.stt.condition_on_previous_text
+                            bool(
+                                task_cfg.get(
+                                    "condition_on_previous_text",
+                                    self.settings.stt.condition_on_previous_text,
+                                )
+                            )
                         ),
-                        vad_filter=self.settings.stt.vad_filter,
-                        vad_threshold=self.settings.stt.vad_threshold,
-                        vad_min_speech_duration_ms=(
-                            self.settings.stt.vad_min_speech_duration_ms
+                        vad_filter=bool(
+                            task_cfg.get("vad_filter", self.settings.stt.vad_filter)
                         ),
-                        vad_max_speech_duration_s=(
-                            self.settings.stt.vad_max_speech_duration_s
+                        vad_threshold=float(
+                            task_cfg.get(
+                                "vad_threshold", self.settings.stt.vad_threshold
+                            )
                         ),
-                        vad_min_silence_duration_ms=(
-                            self.settings.stt.vad_min_silence_duration_ms
+                        vad_min_speech_duration_ms=int(
+                            task_cfg.get(
+                                "vad_min_speech_duration_ms",
+                                self.settings.stt.vad_min_speech_duration_ms,
+                            )
                         ),
-                        vad_speech_pad_ms=self.settings.stt.vad_speech_pad_ms,
-                        no_speech_threshold=self.settings.stt.no_speech_threshold,
-                        compression_ratio_threshold=(
-                            self.settings.stt.compression_ratio_threshold
+                        vad_max_speech_duration_s=float(
+                            task_cfg.get(
+                                "vad_max_speech_duration_s",
+                                self.settings.stt.vad_max_speech_duration_s,
+                            )
                         ),
-                        log_prob_threshold=self.settings.stt.log_prob_threshold,
-                        hallucination_silence_threshold=(
-                            self.settings.stt.hallucination_silence_threshold
+                        vad_min_silence_duration_ms=int(
+                            task_cfg.get(
+                                "vad_min_silence_duration_ms",
+                                self.settings.stt.vad_min_silence_duration_ms,
+                            )
                         ),
-                        initial_prompt=self.settings.stt.initial_prompt,
-                        hotwords=self.settings.stt.hotwords,
+                        vad_speech_pad_ms=int(
+                            task_cfg.get(
+                                "vad_speech_pad_ms", self.settings.stt.vad_speech_pad_ms
+                            )
+                        ),
+                        no_speech_threshold=float(
+                            task_cfg.get(
+                                "no_speech_threshold",
+                                self.settings.stt.no_speech_threshold,
+                            )
+                        ),
+                        compression_ratio_threshold=float(
+                            task_cfg.get(
+                                "compression_ratio_threshold",
+                                self.settings.stt.compression_ratio_threshold,
+                            )
+                        ),
+                        log_prob_threshold=float(
+                            task_cfg.get(
+                                "log_prob_threshold",
+                                self.settings.stt.log_prob_threshold,
+                            )
+                        ),
+                        hallucination_silence_threshold=float(
+                            task_cfg.get(
+                                "hallucination_silence_threshold",
+                                self.settings.stt.hallucination_silence_threshold,
+                            )
+                        ),
+                        initial_prompt=str(
+                            task_cfg.get(
+                                "initial_prompt", self.settings.stt.initial_prompt
+                            )
+                        ),
+                        hotwords=str(
+                            task_cfg.get("hotwords", self.settings.stt.hotwords)
+                        ),
                         progress_queue=self._progress_queue,
                         task_id=ctx.task_id,
                         worker_id=worker_id,
@@ -248,7 +305,9 @@ class WorkerRuntime:
                         Path(ctx.output_ja_path),
                         Path(ctx.output_zh_path),
                         config_path=self.config_path,
-                        timeout_sec=ctx.timeout_sec,
+                        timeout_sec=int(task_cfg.get("timeout_sec", ctx.timeout_sec)),
+                        chunk_minutes=int(task_cfg.get("chunk_minutes", 30)),
+                        retry=int(task_cfg.get("retry", 4)),
                         progress_queue=self._progress_queue,
                         task_id=ctx.task_id,
                         worker_id=worker_id,
