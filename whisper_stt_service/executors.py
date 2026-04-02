@@ -358,6 +358,62 @@ def _resolve_runtime(device_arg: str, compute_arg: str) -> tuple[str, str]:
     return device, compute
 
 
+def build_stt_effective_config(
+    *,
+    model: str,
+    language: str,
+    timeout_sec: int,
+    max_retries: int,
+    device: str,
+    compute_type: str,
+    beam_size: int,
+    best_of: int,
+    patience: float,
+    condition_on_previous_text: bool,
+    vad_filter: bool,
+    vad_threshold: float,
+    vad_min_speech_duration_ms: int,
+    vad_max_speech_duration_s: float,
+    vad_min_silence_duration_ms: int,
+    vad_speech_pad_ms: int,
+    no_speech_threshold: float,
+    compression_ratio_threshold: float,
+    log_prob_threshold: float,
+    hallucination_silence_threshold: float,
+    initial_prompt: str,
+    hotwords: str,
+) -> dict[str, Any]:
+    """构造 STT 实际生效参数快照，便于日志审计与问题排查。"""
+
+    resolved_device, resolved_compute = _resolve_runtime(device, compute_type)
+    return {
+        "timeout_sec": int(timeout_sec),
+        "max_retries": int(max_retries),
+        "model": model,
+        "language": language,
+        "device": device,
+        "compute_type": compute_type,
+        "resolved_device": resolved_device,
+        "resolved_compute_type": resolved_compute,
+        "beam_size": max(beam_size, 1),
+        "best_of": max(best_of, 1),
+        "patience": max(patience, 0.1),
+        "condition_on_previous_text": condition_on_previous_text,
+        "vad_filter": vad_filter,
+        "vad_threshold": min(max(vad_threshold, 0.01), 0.99),
+        "vad_min_speech_duration_ms": max(vad_min_speech_duration_ms, 50),
+        "vad_max_speech_duration_s": max(vad_max_speech_duration_s, 1.0),
+        "vad_min_silence_duration_ms": max(vad_min_silence_duration_ms, 50),
+        "vad_speech_pad_ms": max(vad_speech_pad_ms, 0),
+        "no_speech_threshold": min(max(no_speech_threshold, 0.01), 0.99),
+        "compression_ratio_threshold": max(compression_ratio_threshold, 0.1),
+        "log_prob_threshold": log_prob_threshold,
+        "hallucination_silence_threshold": max(hallucination_silence_threshold, 0.0),
+        "initial_prompt": initial_prompt.strip(),
+        "hotwords": hotwords.strip(),
+    }
+
+
 def run_stt(
     input_video: Path,
     output_ja_srt: Path,
@@ -387,7 +443,7 @@ def run_stt(
     progress_queue: Queue[dict[str, Any]] | None = None,
     task_id: str | None = None,
     worker_id: str | None = None,
-) -> None:
+) -> dict[str, Any]:
     """直接在 service 内部执行 STT，不再 `python` 调 `python`。"""
 
     # 每次都删除旧字幕，确保结果来自本次运行。
@@ -397,7 +453,32 @@ def run_stt(
     # 惰性导入，避免服务仅做队列查询时就加载大模型依赖。
     from faster_whisper import WhisperModel
 
-    resolved_device, resolved_compute = _resolve_runtime(device, compute_type)
+    effective_config = build_stt_effective_config(
+        model=model,
+        language=language,
+        timeout_sec=timeout_sec,
+        max_retries=0,
+        device=device,
+        compute_type=compute_type,
+        beam_size=beam_size,
+        best_of=best_of,
+        patience=patience,
+        condition_on_previous_text=condition_on_previous_text,
+        vad_filter=vad_filter,
+        vad_threshold=vad_threshold,
+        vad_min_speech_duration_ms=vad_min_speech_duration_ms,
+        vad_max_speech_duration_s=vad_max_speech_duration_s,
+        vad_min_silence_duration_ms=vad_min_silence_duration_ms,
+        vad_speech_pad_ms=vad_speech_pad_ms,
+        no_speech_threshold=no_speech_threshold,
+        compression_ratio_threshold=compression_ratio_threshold,
+        log_prob_threshold=log_prob_threshold,
+        hallucination_silence_threshold=hallucination_silence_threshold,
+        initial_prompt=initial_prompt,
+        hotwords=hotwords,
+    )
+    resolved_device = str(effective_config["resolved_device"])
+    resolved_compute = str(effective_config["resolved_compute_type"])
     model_runtime = WhisperModel(
         model,
         device=resolved_device,
@@ -408,28 +489,38 @@ def run_stt(
     media_duration = _probe_duration(input_video)
     started = time.perf_counter()
     transcribe_kwargs: dict[str, Any] = {
-        "language": language,
-        "beam_size": max(beam_size, 1),
-        "best_of": max(best_of, 1),
-        "patience": max(patience, 0.1),
+        "language": str(effective_config["language"]),
+        "beam_size": int(effective_config["beam_size"]),
+        "best_of": int(effective_config["best_of"]),
+        "patience": float(effective_config["patience"]),
         "condition_on_previous_text": condition_on_previous_text,
         "vad_filter": vad_filter,
         "vad_parameters": {
-            "threshold": min(max(vad_threshold, 0.01), 0.99),
-            "min_speech_duration_ms": max(vad_min_speech_duration_ms, 50),
-            "max_speech_duration_s": max(vad_max_speech_duration_s, 1.0),
-            "min_silence_duration_ms": max(vad_min_silence_duration_ms, 50),
-            "speech_pad_ms": max(vad_speech_pad_ms, 0),
+            "threshold": float(effective_config["vad_threshold"]),
+            "min_speech_duration_ms": int(
+                effective_config["vad_min_speech_duration_ms"]
+            ),
+            "max_speech_duration_s": float(
+                effective_config["vad_max_speech_duration_s"]
+            ),
+            "min_silence_duration_ms": int(
+                effective_config["vad_min_silence_duration_ms"]
+            ),
+            "speech_pad_ms": int(effective_config["vad_speech_pad_ms"]),
         },
-        "no_speech_threshold": min(max(no_speech_threshold, 0.01), 0.99),
-        "compression_ratio_threshold": max(compression_ratio_threshold, 0.1),
-        "log_prob_threshold": log_prob_threshold,
-        "hallucination_silence_threshold": max(hallucination_silence_threshold, 0.0),
+        "no_speech_threshold": float(effective_config["no_speech_threshold"]),
+        "compression_ratio_threshold": float(
+            effective_config["compression_ratio_threshold"]
+        ),
+        "log_prob_threshold": float(effective_config["log_prob_threshold"]),
+        "hallucination_silence_threshold": float(
+            effective_config["hallucination_silence_threshold"]
+        ),
     }
-    if initial_prompt.strip():
-        transcribe_kwargs["initial_prompt"] = initial_prompt.strip()
-    if hotwords.strip():
-        transcribe_kwargs["hotwords"] = hotwords.strip()
+    if str(effective_config["initial_prompt"]):
+        transcribe_kwargs["initial_prompt"] = str(effective_config["initial_prompt"])
+    if str(effective_config["hotwords"]):
+        transcribe_kwargs["hotwords"] = str(effective_config["hotwords"])
 
     segments, _ = model_runtime.transcribe(
         str(input_video),
@@ -485,6 +576,7 @@ def run_stt(
         task_id=task_id,
         worker_id=worker_id,
     )
+    return effective_config
 
 
 def _parse_srt(content: str) -> list[SrtEntry]:

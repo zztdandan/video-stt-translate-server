@@ -12,7 +12,12 @@ from time import sleep
 from typing import Any
 
 from whisper_stt_service.config import Settings
-from whisper_stt_service.executors import run_extract, run_stt, run_translate
+from whisper_stt_service.executors import (
+    build_stt_effective_config,
+    run_extract,
+    run_stt,
+    run_translate,
+)
 from whisper_stt_service.progress import ProgressStore
 from whisper_stt_service.repository import JobRepository
 
@@ -189,11 +194,7 @@ class WorkerRuntime:
                 worker_id=worker_id,
                 event="task_started",
                 result="running",
-                extra={
-                    "attempt": ctx.attempt,
-                    "max_retries": ctx.max_retries,
-                    "video_path": ctx.video_path,
-                },
+                extra=self._build_task_started_extra(ctx=ctx, stage=stage),
             )
 
             try:
@@ -208,7 +209,7 @@ class WorkerRuntime:
                         worker_id=worker_id,
                     )
                 elif stage == "stt":
-                    run_stt(
+                    effective_config = run_stt(
                         Path(ctx.video_path),
                         Path(ctx.output_ja_path),
                         language=ctx.source_language,
@@ -323,7 +324,14 @@ class WorkerRuntime:
                     worker_id=worker_id,
                     event="task_finished",
                     result="succeeded",
-                    extra={"attempt": ctx.attempt},
+                    extra={
+                        "attempt": ctx.attempt,
+                        **(
+                            {"effective_config": effective_config}
+                            if stage == "stt"
+                            else {}
+                        ),
+                    },
                 )
             except Exception as exc:  # noqa: BLE001
                 failure_status = self.repo.mark_task_failed(ctx.task_id, str(exc))
@@ -346,6 +354,41 @@ class WorkerRuntime:
                         "error": str(exc),
                     },
                 )
+
+    def _build_task_started_extra(self, *, ctx, stage: str) -> dict[str, Any]:
+        """构造 task_started 事件扩展字段，STT 阶段补充生效参数快照。"""
+
+        payload: dict[str, Any] = {
+            "attempt": ctx.attempt,
+            "max_retries": ctx.max_retries,
+            "video_path": ctx.video_path,
+        }
+        if stage == "stt":
+            payload["effective_config"] = build_stt_effective_config(
+                model=self.model_path,
+                language=ctx.source_language,
+                timeout_sec=ctx.timeout_sec,
+                max_retries=ctx.max_retries,
+                device=self.settings.stt.device,
+                compute_type=self.settings.stt.compute_type,
+                beam_size=self.settings.stt.beam_size,
+                best_of=self.settings.stt.best_of,
+                patience=self.settings.stt.patience,
+                condition_on_previous_text=self.settings.stt.condition_on_previous_text,
+                vad_filter=self.settings.stt.vad_filter,
+                vad_threshold=self.settings.stt.vad_threshold,
+                vad_min_speech_duration_ms=self.settings.stt.vad_min_speech_duration_ms,
+                vad_max_speech_duration_s=self.settings.stt.vad_max_speech_duration_s,
+                vad_min_silence_duration_ms=self.settings.stt.vad_min_silence_duration_ms,
+                vad_speech_pad_ms=self.settings.stt.vad_speech_pad_ms,
+                no_speech_threshold=self.settings.stt.no_speech_threshold,
+                compression_ratio_threshold=self.settings.stt.compression_ratio_threshold,
+                log_prob_threshold=self.settings.stt.log_prob_threshold,
+                hallucination_silence_threshold=self.settings.stt.hallucination_silence_threshold,
+                initial_prompt=self.settings.stt.initial_prompt,
+                hotwords=self.settings.stt.hotwords,
+            )
+        return payload
 
     def _write_task_log(
         self,
