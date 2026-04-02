@@ -129,6 +129,10 @@ uv run pytest -q
 - 已实现服务化能力（REST API + 后台 worker）。
 - 已实现高度可控的多任务流水线式调度，可分步骤处理大量电影翻译任务。
 - 已实现实时任务进度查看与状态轮询。
+- 已实现 Job DAG 规划模型（显式 stage 依赖图 + 默认 DAG 兼容回退）。
+- 已实现按 stage 的 `job_config` 覆盖与 `task_config` 快照固化。
+- 已实现 Job 归档接口（`POST /jobs/{job_id}/archive`），可在保留历史的同时释放路径复用资格。
+- 已实现显式 DAG 的 E2E 验收门（首轮 5 分钟 + 连续 1 分钟，且监控/服务/task 日志无错误）。
 
 ### 规划中
 

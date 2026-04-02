@@ -129,6 +129,10 @@ uv run pytest -q
 - Service runtime is available (REST APIs + background workers).
 - Highly controllable multi-task pipeline scheduling is available for stepwise large-batch subtitle translation.
 - Real-time task progress querying and status polling are available.
+- Job DAG planning model is available (explicit stage dependency graph + default DAG fallback).
+- Stage-level `job_config` override and `task_config` snapshot solidification are available.
+- Job archive API is available (`POST /jobs/{job_id}/archive`) to release reused video paths with history retained.
+- Explicit DAG E2E gate is available (5-minute baseline + 1-minute continuous check, with monitor/server/task log verification).
 
 ### Planned
 

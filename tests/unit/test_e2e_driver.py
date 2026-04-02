@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from tests.e2e.run_e2e_explicit_dag_flow import parse_args
 from tests.e2e.run_e2e_real_flow import load_video_paths
 
 
@@ -17,3 +18,18 @@ def test_load_video_paths_requires_non_empty(tmp_path: Path) -> None:
         assert False, "should raise"
     except ValueError:
         assert True
+
+
+def test_explicit_e2e_args_defaults() -> None:
+    """显式 DAG E2E 默认应为 continuous，按 1 分钟门运行。"""
+
+    args = parse_args([])
+    assert args.run_mode == "continuous"
+    assert args.min_monitor_sec == 0
+
+
+def test_explicit_e2e_args_baseline_mode() -> None:
+    """baseline 模式用于首轮 5 分钟门。"""
+
+    args = parse_args(["--run-mode", "baseline"])
+    assert args.run_mode == "baseline"
