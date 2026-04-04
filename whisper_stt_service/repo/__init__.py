@@ -1,5 +1,6 @@
-"""兼容旧导入路径的仓储导出模块。"""
+"""仓储层导出。"""
 
+from whisper_stt_service.repo.database import Database
 from whisper_stt_service.repo.dependency_payload import (
     decode_dependency_payload,
     encode_dependency_payload,
@@ -9,6 +10,7 @@ from whisper_stt_service.repo.models import ClaimedTask, EnqueueResult, TaskExec
 
 __all__ = [
     "ClaimedTask",
+    "Database",
     "EnqueueResult",
     "JobRepository",
     "TaskExecutionContext",

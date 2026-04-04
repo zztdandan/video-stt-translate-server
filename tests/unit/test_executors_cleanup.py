@@ -27,7 +27,7 @@ def test_preclean_output_always_calls_rm_force(monkeypatch) -> None:
         called.append(list(args[0]))
         return subprocess.CompletedProcess(args[0], 0)
 
-    monkeypatch.setattr("whisper_stt_service.executors.subprocess.run", fake_run)
+    monkeypatch.setattr("whisper_stt_service.executor.common.subprocess.run", fake_run)
     preclean_output(Path("/tmp/not-exist.wav"))
 
     assert called

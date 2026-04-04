@@ -72,7 +72,7 @@ def test_build_stt_effective_config_contains_resolved_runtime(monkeypatch) -> No
     """生效参数应包含 resolved_device/resolved_compute_type。"""
 
     monkeypatch.setattr(
-        "whisper_stt_service.executors._resolve_runtime",
+        "whisper_stt_service.executor.stt._resolve_runtime",
         lambda device, compute: ("cuda", "float16"),
     )
 
@@ -119,7 +119,7 @@ def test_worker_task_started_extra_contains_stt_effective_config(monkeypatch) ->
         model_path="/abs/model",
     )
     monkeypatch.setattr(
-        "whisper_stt_service.workers.build_stt_effective_config",
+        "whisper_stt_service.service.runtime.build_stt_effective_config",
         lambda **kwargs: {
             "device": kwargs["device"],
             "compute_type": kwargs["compute_type"],

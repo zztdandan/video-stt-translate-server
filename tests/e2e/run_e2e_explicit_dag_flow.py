@@ -41,9 +41,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--run-mode",
-        choices=("baseline", "continuous"),
+        choices=("baseline", "continuous", "until_done"),
         default="continuous",
-        help="baseline=5min gate, continuous=1min quick check",
+        help="baseline=5min gate, continuous=1min quick check, until_done=wait all jobs done",
     )
     parser.add_argument(
         "--min-monitor-sec",
@@ -230,7 +230,12 @@ def main(argv: list[str] | None = None) -> int:
     server_log = Path(args.server_log)
     monitor_sec = args.min_monitor_sec
     if monitor_sec <= 0:
-        monitor_sec = 300 if args.run_mode == "baseline" else 60
+        if args.run_mode == "baseline":
+            monitor_sec = 300
+        elif args.run_mode == "continuous":
+            monitor_sec = 60
+        else:
+            monitor_sec = 0
 
     monitor_log.parent.mkdir(parents=True, exist_ok=True)
     monitor_log.write_text("", encoding="utf-8")
@@ -279,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         while time.time() < deadline:
             round_no += 1
             failed = 0
+            all_succeeded = True
             snapshots: list[dict] = []
             for job_id in job_ids:
                 job_resp = session.get(f"{base_url}/jobs/{job_id}", timeout=30)
@@ -295,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
                 status = str(merged.get("status", "unknown"))
                 if status == "failed":
                     failed += 1
+                if status != "succeeded":
+                    all_succeeded = False
                 snapshots.append(merged)
 
             queue_summary = _safe_json(
@@ -311,7 +319,9 @@ def main(argv: list[str] | None = None) -> int:
             reached_min = time.time() >= min_end
             if failed > 0:
                 return 1
-            if reached_min:
+            if args.run_mode == "until_done" and all_succeeded:
+                return 0
+            if args.run_mode != "until_done" and reached_min:
                 return 0
             time.sleep(max(args.poll_sec, 1))
         return 1

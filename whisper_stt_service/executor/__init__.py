@@ -1,6 +1,4 @@
-"""兼容旧导入路径的执行器导出模块。"""
-
-import subprocess
+"""执行器能力导出。"""
 
 from whisper_stt_service.executor.common import (
     SrtEntry,
@@ -9,7 +7,7 @@ from whisper_stt_service.executor.common import (
     preclean_output,
 )
 from whisper_stt_service.executor.extract import run_extract
-from whisper_stt_service.executor.stt import _resolve_runtime, build_stt_effective_config, run_stt
+from whisper_stt_service.executor.stt import build_stt_effective_config, run_stt, _resolve_runtime
 from whisper_stt_service.executor.translate import run_translate
 
 __all__ = [
@@ -22,5 +20,4 @@ __all__ = [
     "run_extract",
     "run_stt",
     "run_translate",
-    "subprocess",
 ]
