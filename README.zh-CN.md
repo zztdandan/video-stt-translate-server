@@ -133,6 +133,7 @@ uv run pytest -q
 - 已实现按 stage 的 `job_config` 覆盖与 `task_config` 快照固化。
 - 已实现 Job 归档接口（`POST /jobs/{job_id}/archive`），可在保留历史的同时释放路径复用资格。
 - 已实现显式 DAG 的 E2E 验收门（首轮 5 分钟 + 连续 1 分钟，且监控/服务/task 日志无错误）。
+- 已实现可读 `job_id` / `task_id` 生成规则（类型 + task_name + stage + 时间戳 + 短后缀，并带主键冲突重试）。
 
 ### 规划中
 

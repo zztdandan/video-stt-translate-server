@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import json
+import re
+import sqlite3
 import uuid
 
 from whisper_stt_service.core.dag import (
@@ -17,6 +19,54 @@ from whisper_stt_service.core.stages import SUPPORTED_STAGES
 
 
 STAGES = SUPPORTED_STAGES
+_MAX_TASK_NAME_LEN = 64
+_ID_RETRY_LIMIT = 32
+_UUID_SUFFIX_LEN = 4
+_NON_ALNUM_PATTERN = re.compile(r"[^0-9A-Za-z]+")
+
+
+def _derive_task_name(video_path: str) -> str:
+    """从视频文件名提取可读 task_name（仅字母数字，保留末尾 64 位）。"""
+
+    stem = Path(video_path).stem
+    cleaned = _NON_ALNUM_PATTERN.sub("", stem)
+    if len(cleaned) > _MAX_TASK_NAME_LEN:
+        cleaned = cleaned[-_MAX_TASK_NAME_LEN:]
+    return cleaned or "unnamed"
+
+
+def _readable_timestamp() -> str:
+    """生成 `YYYYMMDDHHMMSS` 格式时间戳。"""
+
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+
+
+def _short_uuid_suffix() -> str:
+    """生成 4 位十六进制短后缀。"""
+
+    return uuid.uuid4().hex[:_UUID_SUFFIX_LEN]
+
+
+def _build_readable_job_id(task_name: str, timestamp: str) -> str:
+    """构造可读 job_id。"""
+
+    return f"job-{task_name}-job-{timestamp}-{_short_uuid_suffix()}"
+
+
+def _build_readable_task_id(task_name: str, stage: str, timestamp: str) -> str:
+    """构造可读 task_id。"""
+
+    return f"task-{task_name}-{stage}-{timestamp}-{_short_uuid_suffix()}"
+
+
+def _is_id_collision_error(exc: sqlite3.IntegrityError) -> bool:
+    """仅识别 job/task 主键冲突，用于触发可恢复重试。"""
+
+    message = str(exc)
+    return (
+        "UNIQUE constraint failed: jobs.job_id" in message
+        or "UNIQUE constraint failed: tasks.task_id" in message
+    )
 
 
 def _now() -> str:
@@ -204,76 +254,103 @@ class JobRepository:
                     )
 
             queue_ahead = self._count_queue_ahead(conn, now)
-            job_id = str(uuid.uuid4())
-            ja, zh = self._build_output_paths(job_id, video_path)
-            conn.execute(
-                "INSERT INTO jobs(job_id,video_path,source_language,status,output_ja_path,output_zh_path,dag_json,job_config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (
-                    job_id,
-                    video_path,
-                    language,
-                    "queued",
-                    ja,
-                    zh,
-                    json.dumps(normalized_dag, ensure_ascii=False),
-                    json.dumps(normalized_job_config, ensure_ascii=False)
-                    if normalized_job_config
-                    else None,
-                    now,
-                    now,
-                ),
-            )
-
-            stage_to_task_id: dict[str, str] = {}
+            task_name = _derive_task_name(video_path)
             normalized_stages = normalized_dag["stages"]
-            for item in normalized_stages:
-                stage = str(item["stage"])
-                task_id = str(uuid.uuid4())
-                stage_to_task_id[stage] = task_id
 
-                stage_overrides = normalized_job_config.get(stage, {})
-                effective_config = self._build_effective_config(stage, stage_overrides)
-                task_config = {
-                    "stage": stage,
-                    "effective_config": effective_config,
+            for _ in range(_ID_RETRY_LIMIT):
+                readable_ts = _readable_timestamp()
+                job_id = _build_readable_job_id(task_name, readable_ts)
+                ja, zh = self._build_output_paths(job_id, video_path)
+                stage_to_task_id = {
+                    str(item["stage"]): _build_readable_task_id(
+                        task_name,
+                        str(item["stage"]),
+                        readable_ts,
+                    )
+                    for item in normalized_stages
                 }
-                log_dir, log_file = self._build_log_paths(job_id, stage, task_id)
-                conn.execute(
-                    "INSERT INTO tasks(task_id,job_id,stage,status,depends_on_task_id,task_config_json,max_retries,timeout_sec,log_dir,log_file,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        task_id,
+
+                conn.execute("SAVEPOINT enqueue_id_retry")
+                try:
+                    conn.execute(
+                        "INSERT INTO jobs(job_id,video_path,source_language,status,output_ja_path,output_zh_path,dag_json,job_config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            job_id,
+                            video_path,
+                            language,
+                            "queued",
+                            ja,
+                            zh,
+                            json.dumps(normalized_dag, ensure_ascii=False),
+                            json.dumps(normalized_job_config, ensure_ascii=False)
+                            if normalized_job_config
+                            else None,
+                            now,
+                            now,
+                        ),
+                    )
+
+                    for item in normalized_stages:
+                        stage = str(item["stage"])
+                        task_id = stage_to_task_id[stage]
+                        stage_overrides = normalized_job_config.get(stage, {})
+                        effective_config = self._build_effective_config(
+                            stage, stage_overrides
+                        )
+                        task_config = {
+                            "stage": stage,
+                            "effective_config": effective_config,
+                        }
+                        log_dir, log_file = self._build_log_paths(
+                            job_id, stage, task_id
+                        )
+                        conn.execute(
+                            "INSERT INTO tasks(task_id,job_id,stage,status,depends_on_task_id,task_config_json,max_retries,timeout_sec,log_dir,log_file,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (
+                                task_id,
+                                job_id,
+                                stage,
+                                "queued",
+                                None,
+                                json.dumps(task_config, ensure_ascii=False),
+                                int(effective_config.get("max_retries", 2)),
+                                int(effective_config.get("timeout_sec", 3600)),
+                                log_dir,
+                                log_file,
+                                now,
+                                now,
+                            ),
+                        )
+
+                    for item in normalized_stages:
+                        stage = str(item["stage"])
+                        dep_stage_names = [str(x) for x in item["depends_on"]]
+                        dep_task_ids = [
+                            stage_to_task_id[name] for name in dep_stage_names
+                        ]
+                        payload = encode_dependency_payload(dep_task_ids)
+                        conn.execute(
+                            "UPDATE tasks SET depends_on_task_id=?, updated_at=? WHERE task_id=?",
+                            (payload, now, stage_to_task_id[stage]),
+                        )
+                except sqlite3.IntegrityError as exc:
+                    conn.execute("ROLLBACK TO SAVEPOINT enqueue_id_retry")
+                    conn.execute("RELEASE SAVEPOINT enqueue_id_retry")
+                    if _is_id_collision_error(exc):
+                        continue
+                    raise
+                else:
+                    conn.execute("RELEASE SAVEPOINT enqueue_id_retry")
+                    return EnqueueResult(
                         job_id,
-                        stage,
-                        "queued",
-                        None,
-                        json.dumps(task_config, ensure_ascii=False),
-                        int(effective_config.get("max_retries", 2)),
-                        int(effective_config.get("timeout_sec", 3600)),
-                        log_dir,
-                        log_file,
-                        now,
-                        now,
-                    ),
-                )
+                        True,
+                        "created",
+                        queue_ahead,
+                        "default" if dag is None else "custom",
+                        [str(x["stage"]) for x in normalized_stages],
+                    )
 
-            for item in normalized_stages:
-                stage = str(item["stage"])
-                dep_stage_names = [str(x) for x in item["depends_on"]]
-                dep_task_ids = [stage_to_task_id[name] for name in dep_stage_names]
-                payload = encode_dependency_payload(dep_task_ids)
-                conn.execute(
-                    "UPDATE tasks SET depends_on_task_id=?, updated_at=? WHERE task_id=?",
-                    (payload, now, stage_to_task_id[stage]),
-                )
-
-            return EnqueueResult(
-                job_id,
-                True,
-                "created",
-                queue_ahead,
-                "default" if dag is None else "custom",
-                [str(x["stage"]) for x in normalized_stages],
-            )
+            raise RuntimeError("enqueue_id_generation_exhausted")
 
     def force_mark_any_stage_started(self, job_id: str) -> None:
         """测试辅助：强制把 extract 置为 claimed，模拟任务已开始。"""

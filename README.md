@@ -133,6 +133,7 @@ uv run pytest -q
 - Stage-level `job_config` override and `task_config` snapshot solidification are available.
 - Job archive API is available (`POST /jobs/{job_id}/archive`) to release reused video paths with history retained.
 - Explicit DAG E2E gate is available (5-minute baseline + 1-minute continuous check, with monitor/server/task log verification).
+- Readable `job_id` / `task_id` generation is available (type + task name + stage + timestamp + short suffix, with collision retry).
 
 ### Planned
 

@@ -44,7 +44,7 @@ def _format_task_line(task: dict) -> str:
     """把单个 task 结果格式化为易读行。"""
 
     task_id = str(task.get("task_id", ""))
-    short_task = task_id[:8] if task_id else "unknown"
+    short_task = task_id[:16] if task_id else "unknown"
     stage = str(task.get("stage", "?"))
     status = str(task.get("status", "?"))
     attempt = int(task.get("attempt", 0))
@@ -120,7 +120,7 @@ def _print_round_summary(
     print(f"task_logs_root={log_root}", flush=True)
     for item in snapshots:
         job_id = str(item.get("job_id", ""))
-        short_job = job_id[:8] if job_id else "unknown"
+        short_job = job_id[:16] if job_id else "unknown"
         status = str(item.get("status", "unknown"))
         video = str(item.get("video_path", ""))
         tasks = item.get("tasks", [])
