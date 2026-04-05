@@ -92,6 +92,7 @@ def _build_stage_effective_defaults(settings: Settings) -> dict[str, dict]:
         "translate": {
             "chunk_minutes": 30,
             "retry": 4,
+            "copy_back": "__video_dir__",
         },
     }
 

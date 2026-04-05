@@ -30,5 +30,11 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "initial_prompt",
         "hotwords",
     ),
-    "translate": ("timeout_sec", "max_retries", "chunk_minutes", "retry"),
+    "translate": (
+        "timeout_sec",
+        "max_retries",
+        "chunk_minutes",
+        "retry",
+        "copy_back",
+    ),
 }

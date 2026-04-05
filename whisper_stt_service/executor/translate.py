@@ -6,6 +6,8 @@ from pathlib import Path
 from queue import Queue
 from typing import Any, Callable
 import json
+import logging
+import shutil
 import time
 
 import requests
@@ -21,6 +23,9 @@ from whisper_stt_service.executor.common import (
     _split_entries_by_time_window,
     preclean_output,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _call_translate_api(
@@ -75,6 +80,8 @@ def run_translate(
     config_path: Path,
     timeout_sec: int,
     *,
+    input_video_path: Path,
+    copy_back: str | None = None,
     chunk_minutes: int | None = None,
     retry: int | None = None,
     progress_queue: Queue[dict[str, Any]] | None = None,
@@ -92,7 +99,7 @@ def run_translate(
 
     config = _load_llm_config(config_path)
     base_url = config.get(
-        "llm", "base_url", fallback="https://www.right.codes/codex/v1"
+        "llm", "base_url", fallback="https://api.openai.com/v1"
     )
     api_key = config.get("llm", "api_key", fallback="").strip()
     if not api_key:
@@ -172,6 +179,19 @@ def run_translate(
             time.sleep(request_interval)
 
     _dump_srt(entries, translations, output_zh_srt)
+
+    configured_copy_back = (copy_back or "").strip()
+    if not configured_copy_back:
+        configured_copy_back = config.get(
+            "translation", "copy_back", fallback="__video_dir__"
+        ).strip()
+    copy_back_dir = _resolve_copy_back_dir(
+        configured_copy_back,
+        config_path=config_path,
+        input_video_path=input_video_path,
+    )
+    _copy_back_subtitles(input_ja_srt, output_zh_srt, copy_back_dir)
+
     _emit_progress(
         progress_queue,
         stage="translate",
@@ -180,3 +200,51 @@ def run_translate(
         task_id=task_id,
         worker_id=worker_id,
     )
+
+
+def _resolve_copy_back_dir(
+    configured: str,
+    *,
+    config_path: Path,
+    input_video_path: Path,
+) -> Path:
+    """解析 copy_back 目标目录：默认回写到输入视频所在目录。"""
+
+    lowered = configured.strip().lower()
+    if lowered in {"", "__video_dir__", "video_dir", "input_video_dir"}:
+        return input_video_path.parent
+
+    target = Path(configured).expanduser()
+    if target.is_absolute():
+        return target
+    return (config_path.parent / target).resolve()
+
+
+def _copy_back_subtitles(
+    input_ja_srt: Path, output_zh_srt: Path, target_dir: Path
+) -> None:
+    """把翻译阶段最终 ja/zh 字幕复制到回写目录。"""
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "copy_back skipped: cannot prepare target directory: dir=%s error=%s",
+            target_dir,
+            exc,
+        )
+        return
+
+    for source in (input_ja_srt, output_zh_srt):
+        target = target_dir / source.name
+        if source.resolve() == target.resolve():
+            continue
+        try:
+            shutil.copy2(source, target)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "copy_back failed: source=%s target=%s error=%s",
+                source,
+                target,
+                exc,
+            )

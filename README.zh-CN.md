@@ -77,6 +77,12 @@ uv sync --group dev
 - `config file not found, created default from example: /abs/path/config.ini`
 - `missing required config entries: llm.api_key, runtime.model_path`
 
+字幕产物路径与回写行为：
+
+- 服务内部产物（`.ja.srt` / `.zh.srt`）默认落在 `runtime.log_root` 同级的 `artifacts/<job_id>/`。
+- 可通过 `[translation] copy_back` 配置 translate 阶段结束后的字幕回写目录。
+- 默认 `copy_back = __video_dir__`，即回写到输入视频所在目录。
+
 ## 使用方式 1：脚本/CLI 本地转化
 
 可直接使用仓库脚本执行本地视频处理：

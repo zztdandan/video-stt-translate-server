@@ -81,3 +81,13 @@ def test_job_config_accepts_stt_batch_size() -> None:
     dag = build_default_dag()
     normalized = normalize_and_validate_job_config({"stt": {"batch_size": 8}}, dag)
     assert normalized["stt"]["batch_size"] == 8
+
+
+def test_job_config_accepts_translate_copy_back() -> None:
+    """translate.copy_back 应允许作为单任务覆盖参数。"""
+
+    dag = build_default_dag()
+    normalized = normalize_and_validate_job_config(
+        {"translate": {"copy_back": "/tmp/subtitles"}}, dag
+    )
+    assert normalized["translate"]["copy_back"] == "/tmp/subtitles"

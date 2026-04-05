@@ -143,6 +143,7 @@ class JobRepository:
             "translate": {
                 "chunk_minutes": 30,
                 "retry": 4,
+                "copy_back": "__video_dir__",
             },
         }
         self.log_root = log_root or Path("./tmp/logs")

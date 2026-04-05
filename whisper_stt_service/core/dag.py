@@ -126,6 +126,7 @@ def _validate_stage_config_value(stage: str, key: str, value: object) -> None:
         ("stt", "compute_type"),
         ("stt", "initial_prompt"),
         ("stt", "hotwords"),
+        ("translate", "copy_back"),
     }
 
     key_pair = (stage, key)

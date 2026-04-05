@@ -77,6 +77,12 @@ Example startup log messages:
 - `config file not found, created default from example: /abs/path/config.ini`
 - `missing required config entries: llm.api_key, runtime.model_path`
 
+Subtitle artifact paths and copy-back behavior:
+
+- Service-internal output (`.ja.srt` / `.zh.srt`) is stored under `artifacts/<job_id>/` next to `runtime.log_root`.
+- You can configure `[translation] copy_back` to copy final `.ja.srt` and `.zh.srt` after translate stage.
+- Default `copy_back = __video_dir__` copies subtitles back to the input video's folder.
+
 ## Usage mode 1: Run by scripts (CLI conversion)
 
 Use the built-in scripts for local video processing:

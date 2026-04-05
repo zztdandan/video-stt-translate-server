@@ -312,6 +312,8 @@ class WorkerRuntime:
                         Path(ctx.output_zh_path),
                         config_path=self.config_path,
                         timeout_sec=int(task_cfg.get("timeout_sec", ctx.timeout_sec)),
+                        input_video_path=Path(ctx.video_path),
+                        copy_back=str(task_cfg.get("copy_back", "")).strip() or None,
                         chunk_minutes=int(task_cfg.get("chunk_minutes", 30)),
                         retry=int(task_cfg.get("retry", 4)),
                         progress_queue=self._progress_queue,
