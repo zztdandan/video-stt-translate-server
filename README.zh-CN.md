@@ -24,7 +24,7 @@ Whisper STT + translation service for batch video processing.
 
 ## 目录说明
 
-- `whisper_stt_service/`：队列化服务主流程（extract -> stt -> translate）。
+- `whisper_stt_service/`：队列化服务主流程（默认 extract -> stt -> translate，显式 DAG 可选 `stt_whisperx`）。
 - `whisper_stt/`：独立脚本（转写/翻译）。
 - `tests/`：单元测试与 e2e 测试。
 
@@ -105,6 +105,7 @@ bash scripts/run_video_ja_zh.sh
 
 ```bash
 uv run python whisper_stt/transcribe_video.py --help
+uv run python whisper_stt/transcribe_video_whisperx.py --help
 uv run python whisper_stt/translate_srt_ja_to_zh.py --help
 ```
 
@@ -152,6 +153,7 @@ uv run pytest -q
 - 已实现 translate 阶段字幕回写（`[translation] copy_back`），可将最终字幕回传至源视频目录。
 - 已实现 STT 运行参数可配置（含 `[stt] batch_size` 等）并在 worker task 日志中记录生效配置。
 - 已实现 `uv` 可选 GPU 依赖组，便于可复现 CUDA 运行环境搭建。
+- 已实现 WhisperX 新阶段（`stt_whisperx`），支持全本地 VAD + batched ASR + 可选 alignment，并完成显式 DAG E2E 覆盖。✅
 
 ### 规划中
 

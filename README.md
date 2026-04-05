@@ -24,7 +24,7 @@ If you are new to the project, start with the CLI path to validate model/runtime
 
 ## Project layout
 
-- `whisper_stt_service/`: queue-based service (extract -> stt -> translate).
+- `whisper_stt_service/`: queue-based service (default extract -> stt -> translate, explicit DAG supports `stt_whisperx`).
 - `whisper_stt/`: standalone scripts (`transcribe_video.py`, `translate_srt_ja_to_zh.py`).
 - `tests/`: unit/e2e tests.
 
@@ -105,6 +105,7 @@ Manual CLI examples:
 
 ```bash
 uv run python whisper_stt/transcribe_video.py --help
+uv run python whisper_stt/transcribe_video_whisperx.py --help
 uv run python whisper_stt/translate_srt_ja_to_zh.py --help
 ```
 
@@ -152,6 +153,7 @@ uv run pytest -q
 - Translate stage subtitle copy-back is available (`[translation] copy_back`) so final subtitles can be returned to source video directories.
 - STT runtime knobs are configurable (`[stt] batch_size` and related fields) and effective runtime config is logged in worker task logs.
 - Optional `uv` GPU dependency group is available for reproducible CUDA environment setup.
+- WhisperX stage is available (`stt_whisperx`), including local VAD + batched ASR + optional align path and explicit DAG E2E coverage. ✅
 
 ### Planned
 

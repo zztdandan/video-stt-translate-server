@@ -147,3 +147,35 @@ def test_enqueue_retries_when_readable_id_collides(tmp_path: Path, monkeypatch) 
     assert created.accepted is True
     assert created.job_id != conflicting_job_id
     assert created.job_id.startswith(f"job-collision-job-{fixed_ts}-")
+
+
+def test_enqueue_persists_whisperx_task_config_snapshot(tmp_path: Path) -> None:
+    """显式 stt_whisperx dag/job_config 应正确固化到 task_config。"""
+
+    db = Database(tmp_path / "q.db")
+    db.init_schema()
+    repo = JobRepository(db)
+    dag = {
+        "version": 1,
+        "stages": [
+            {"stage": "extract", "depends_on": []},
+            {"stage": "stt_whisperx", "depends_on": ["extract"]},
+            {"stage": "translate", "depends_on": ["stt_whisperx"]},
+        ],
+    }
+    job_config = {
+        "stt_whisperx": {
+            "batch_size": 16,
+            "align_enabled": True,
+            "align_model_root": "/tmp/align",
+        }
+    }
+
+    created = repo.enqueue(
+        video_path="/tmp/c.mp4", language="ja", dag=dag, job_config=job_config
+    )
+    detail = repo.get_job_detail(created.job_id)
+    assert detail is not None
+    stt_task = [t for t in detail["tasks"] if t["stage"] == "stt_whisperx"][0]
+    assert stt_task["task_config"]["effective_config"]["batch_size"] == 16
+    assert stt_task["task_config"]["effective_config"]["align_enabled"] is True

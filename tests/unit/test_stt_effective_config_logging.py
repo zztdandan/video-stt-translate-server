@@ -11,6 +11,7 @@ from whisper_stt_service.config import (
     RuntimeSettings,
     Settings,
     SttSettings,
+    SttWhisperxSettings,
     TimeoutSettings,
     WorkerSettings,
 )
@@ -26,6 +27,7 @@ def _fake_settings() -> Settings:
         workers=WorkerSettings(
             extract_workers=1,
             stt_workers=1,
+            stt_whisperx_workers=1,
             translate_workers=1,
             scheduler_interval_sec=60,
             poll_interval_sec=1,
@@ -33,12 +35,14 @@ def _fake_settings() -> Settings:
         timeouts=TimeoutSettings(
             extract_timeout_sec=120,
             stt_timeout_sec=3600,
+            stt_whisperx_timeout_sec=3600,
             translate_timeout_sec=3600,
             lease_timeout_sec=60,
         ),
         retry=RetrySettings(
             extract_max_retries=2,
             stt_max_retries=2,
+            stt_whisperx_max_retries=2,
             translate_max_retries=2,
         ),
         runtime=RuntimeSettings(
@@ -67,6 +71,19 @@ def _fake_settings() -> Settings:
             hallucination_silence_threshold=1.5,
             initial_prompt="",
             hotwords="",
+        ),
+        stt_whisperx=SttWhisperxSettings(
+            model="/tmp/model",
+            device="auto",
+            compute_type="auto",
+            batch_size=8,
+            vad_config_path=Path("/tmp/vad/config.yaml"),
+            align_model_root=Path("/tmp/align"),
+            align_enabled=True,
+            vad_backend="pyannote",
+            vad_onset=0.5,
+            vad_offset=0.363,
+            local_files_only=True,
         ),
     )
 

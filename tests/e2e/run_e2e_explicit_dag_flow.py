@@ -98,14 +98,14 @@ def _build_payload(video_path: str) -> dict:
             "version": 1,
             "stages": [
                 {"stage": "extract", "depends_on": []},
-                {"stage": "stt", "depends_on": ["extract"]},
-                {"stage": "translate", "depends_on": ["stt"]},
+                {"stage": "stt_whisperx", "depends_on": ["extract"]},
+                {"stage": "translate", "depends_on": ["stt_whisperx"]},
             ],
         },
         "job_config": {
-            "stt": {
-                "beam_size": 3,
-                "best_of": 3,
+            "stt_whisperx": {
+                "batch_size": 16,
+                "align_enabled": True,
             },
             "translate": {
                 "chunk_minutes": 20,

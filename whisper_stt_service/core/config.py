@@ -17,6 +17,7 @@ class WorkerSettings:
 
     extract_workers: int
     stt_workers: int
+    stt_whisperx_workers: int
     translate_workers: int
     scheduler_interval_sec: int
     poll_interval_sec: int
@@ -28,6 +29,7 @@ class TimeoutSettings:
 
     extract_timeout_sec: int
     stt_timeout_sec: int
+    stt_whisperx_timeout_sec: int
     translate_timeout_sec: int
     lease_timeout_sec: int
 
@@ -38,6 +40,7 @@ class RetrySettings:
 
     extract_max_retries: int
     stt_max_retries: int
+    stt_whisperx_max_retries: int
     translate_max_retries: int
 
 
@@ -77,6 +80,23 @@ class SttSettings:
 
 
 @dataclass(frozen=True)
+class SttWhisperxSettings:
+    """WhisperX STT 阶段转写参数配置。"""
+
+    model: str
+    device: str
+    compute_type: str
+    batch_size: int
+    vad_config_path: Path
+    align_model_root: Path
+    align_enabled: bool
+    vad_backend: str
+    vad_onset: float
+    vad_offset: float
+    local_files_only: bool
+
+
+@dataclass(frozen=True)
 class Settings:
     """服务总配置对象（不可变）。"""
 
@@ -85,6 +105,7 @@ class Settings:
     retry: RetrySettings
     runtime: RuntimeSettings
     stt: SttSettings
+    stt_whisperx: SttWhisperxSettings
 
 
 # 启动前必须存在的配置项（按 section/option 列举）。
@@ -92,17 +113,20 @@ REQUIRED_CONFIG_OPTIONS: dict[str, tuple[str, ...]] = {
     "workers": (
         "extract_workers",
         "stt_workers",
+        "stt_whisperx_workers",
         "translate_workers",
     ),
     "timeouts": (
         "extract_timeout_sec",
         "stt_timeout_sec",
+        "stt_whisperx_timeout_sec",
         "translate_timeout_sec",
         "lease_timeout_sec",
     ),
     "retry": (
         "extract_max_retries",
         "stt_max_retries",
+        "stt_whisperx_max_retries",
         "translate_max_retries",
     ),
     "runtime": (
@@ -160,6 +184,11 @@ def load_settings(config_path: Path) -> Settings:
     workers = WorkerSettings(
         extract_workers=cp.getint("workers", "extract_workers"),
         stt_workers=cp.getint("workers", "stt_workers"),
+        stt_whisperx_workers=cp.getint(
+            "workers",
+            "stt_whisperx_workers",
+            fallback=cp.getint("workers", "stt_workers"),
+        ),
         translate_workers=cp.getint("workers", "translate_workers"),
         scheduler_interval_sec=cp.getint(
             "workers", "scheduler_interval_sec", fallback=180
@@ -169,12 +198,22 @@ def load_settings(config_path: Path) -> Settings:
     timeouts = TimeoutSettings(
         extract_timeout_sec=cp.getint("timeouts", "extract_timeout_sec"),
         stt_timeout_sec=cp.getint("timeouts", "stt_timeout_sec"),
+        stt_whisperx_timeout_sec=cp.getint(
+            "timeouts",
+            "stt_whisperx_timeout_sec",
+            fallback=cp.getint("timeouts", "stt_timeout_sec"),
+        ),
         translate_timeout_sec=cp.getint("timeouts", "translate_timeout_sec"),
         lease_timeout_sec=cp.getint("timeouts", "lease_timeout_sec"),
     )
     retry = RetrySettings(
         extract_max_retries=cp.getint("retry", "extract_max_retries"),
         stt_max_retries=cp.getint("retry", "stt_max_retries"),
+        stt_whisperx_max_retries=cp.getint(
+            "retry",
+            "stt_whisperx_max_retries",
+            fallback=cp.getint("retry", "stt_max_retries"),
+        ),
         translate_max_retries=cp.getint("retry", "translate_max_retries"),
     )
     runtime = RuntimeSettings(
@@ -222,10 +261,44 @@ def load_settings(config_path: Path) -> Settings:
         initial_prompt=cp.get("stt", "initial_prompt", fallback="").strip(),
         hotwords=cp.get("stt", "hotwords", fallback="").strip(),
     )
+    stt_whisperx = SttWhisperxSettings(
+        model=cp.get("stt_whisperx", "model", fallback=str(runtime.model_path)).strip(),
+        device=cp.get("stt_whisperx", "device", fallback=stt.device),
+        compute_type=cp.get("stt_whisperx", "compute_type", fallback=stt.compute_type),
+        batch_size=max(
+            cp.getint("stt_whisperx", "batch_size", fallback=stt.batch_size), 1
+        ),
+        vad_config_path=Path(
+            cp.get(
+                "stt_whisperx",
+                "vad_config_path",
+                fallback="models/whisperx/vad/pyannote/config.yaml",
+            )
+        ),
+        align_model_root=Path(
+            cp.get(
+                "stt_whisperx",
+                "align_model_root",
+                fallback="models/whisperx/align",
+            )
+        ),
+        align_enabled=cp.getboolean("stt_whisperx", "align_enabled", fallback=True),
+        vad_backend=cp.get("stt_whisperx", "vad_backend", fallback="pyannote").strip(),
+        vad_onset=min(
+            max(cp.getfloat("stt_whisperx", "vad_onset", fallback=0.5), 0.01), 0.99
+        ),
+        vad_offset=min(
+            max(cp.getfloat("stt_whisperx", "vad_offset", fallback=0.363), 0.01), 0.99
+        ),
+        local_files_only=cp.getboolean(
+            "stt_whisperx", "local_files_only", fallback=True
+        ),
+    )
     return Settings(
         workers=workers,
         timeouts=timeouts,
         retry=retry,
         runtime=runtime,
         stt=stt,
+        stt_whisperx=stt_whisperx,
     )

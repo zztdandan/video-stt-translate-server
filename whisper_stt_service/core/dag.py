@@ -102,6 +102,9 @@ def _validate_stage_config_value(stage: str, key: str, value: object) -> None:
         ("stt", "vad_min_speech_duration_ms"): 50,
         ("stt", "vad_min_silence_duration_ms"): 50,
         ("stt", "vad_speech_pad_ms"): 0,
+        ("stt_whisperx", "timeout_sec"): 1,
+        ("stt_whisperx", "max_retries"): 0,
+        ("stt_whisperx", "batch_size"): 1,
         ("translate", "timeout_sec"): 1,
         ("translate", "max_retries"): 0,
         ("translate", "chunk_minutes"): 1,
@@ -116,10 +119,14 @@ def _validate_stage_config_value(stage: str, key: str, value: object) -> None:
     float_range_rules: dict[tuple[str, str], tuple[float, float]] = {
         ("stt", "vad_threshold"): (0.01, 0.99),
         ("stt", "no_speech_threshold"): (0.01, 0.99),
+        ("stt_whisperx", "vad_onset"): (0.01, 0.99),
+        ("stt_whisperx", "vad_offset"): (0.01, 0.99),
     }
     bool_rules = {
         ("stt", "condition_on_previous_text"),
         ("stt", "vad_filter"),
+        ("stt_whisperx", "align_enabled"),
+        ("stt_whisperx", "local_files_only"),
     }
     str_rules = {
         ("stt", "device"),
@@ -127,6 +134,12 @@ def _validate_stage_config_value(stage: str, key: str, value: object) -> None:
         ("stt", "initial_prompt"),
         ("stt", "hotwords"),
         ("translate", "copy_back"),
+        ("stt_whisperx", "model"),
+        ("stt_whisperx", "device"),
+        ("stt_whisperx", "compute_type"),
+        ("stt_whisperx", "vad_config_path"),
+        ("stt_whisperx", "align_model_root"),
+        ("stt_whisperx", "vad_backend"),
     }
 
     key_pair = (stage, key)

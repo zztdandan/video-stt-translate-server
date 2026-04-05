@@ -7,7 +7,15 @@ from whisper_stt_service.executor.common import (
     preclean_output,
 )
 from whisper_stt_service.executor.extract import run_extract
-from whisper_stt_service.executor.stt import build_stt_effective_config, run_stt, _resolve_runtime
+from whisper_stt_service.executor.stt import (
+    build_stt_effective_config,
+    run_stt,
+    _resolve_runtime,
+)
+from whisper_stt_service.executor.stt_whisperx import (
+    build_stt_whisperx_effective_config,
+    run_stt_whisperx,
+)
 from whisper_stt_service.executor.translate import run_translate
 
 __all__ = [
@@ -16,8 +24,10 @@ __all__ = [
     "_resolve_runtime",
     "_split_entries_by_time_window",
     "build_stt_effective_config",
+    "build_stt_whisperx_effective_config",
     "preclean_output",
     "run_extract",
     "run_stt",
+    "run_stt_whisperx",
     "run_translate",
 ]

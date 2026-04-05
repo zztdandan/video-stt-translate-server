@@ -91,3 +91,22 @@ def test_job_config_accepts_translate_copy_back() -> None:
         {"translate": {"copy_back": "/tmp/subtitles"}}, dag
     )
     assert normalized["translate"]["copy_back"] == "/tmp/subtitles"
+
+
+def test_job_config_accepts_stt_whisperx_batch_size() -> None:
+    """stt_whisperx.batch_size 应允许作为单任务覆盖参数。"""
+
+    dag = {
+        "version": 1,
+        "stages": [
+            {"stage": "extract", "depends_on": []},
+            {"stage": "stt_whisperx", "depends_on": ["extract"]},
+            {"stage": "translate", "depends_on": ["stt_whisperx"]},
+        ],
+    }
+    normalized_dag = normalize_and_validate_dag(dag)
+    normalized = normalize_and_validate_job_config(
+        {"stt_whisperx": {"batch_size": 16, "align_enabled": True}},
+        normalized_dag,
+    )
+    assert normalized["stt_whisperx"]["batch_size"] == 16

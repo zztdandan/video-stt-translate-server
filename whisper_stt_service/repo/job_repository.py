@@ -110,11 +110,13 @@ class JobRepository:
         self.stage_max_retries = stage_max_retries or {
             "extract": 2,
             "stt": 2,
+            "stt_whisperx": 2,
             "translate": 2,
         }
         self.stage_timeouts = stage_timeouts or {
             "extract": 1200,
             "stt": 7200,
+            "stt_whisperx": 7200,
             "translate": 7200,
         }
         self.stage_effective_defaults = stage_effective_defaults or {
@@ -139,6 +141,19 @@ class JobRepository:
                 "hallucination_silence_threshold": 1.5,
                 "initial_prompt": "",
                 "hotwords": "",
+            },
+            "stt_whisperx": {
+                "model": "models/faster-whisper-small",
+                "device": "auto",
+                "compute_type": "auto",
+                "batch_size": 8,
+                "vad_config_path": "models/whisperx/vad/pyannote/config.yaml",
+                "align_model_root": "models/whisperx/align",
+                "align_enabled": True,
+                "vad_backend": "pyannote",
+                "vad_onset": 0.5,
+                "vad_offset": 0.363,
+                "local_files_only": True,
             },
             "translate": {
                 "chunk_minutes": 30,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SUPPORTED_STAGES = ("extract", "stt", "translate")
+SUPPORTED_STAGES = ("extract", "stt", "stt_whisperx", "translate")
 
 # 每个阶段允许覆盖的配置键。
 STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
@@ -29,6 +29,21 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "hallucination_silence_threshold",
         "initial_prompt",
         "hotwords",
+    ),
+    "stt_whisperx": (
+        "timeout_sec",
+        "max_retries",
+        "model",
+        "device",
+        "compute_type",
+        "batch_size",
+        "vad_config_path",
+        "align_model_root",
+        "align_enabled",
+        "vad_backend",
+        "vad_onset",
+        "vad_offset",
+        "local_files_only",
     ),
     "translate": (
         "timeout_sec",

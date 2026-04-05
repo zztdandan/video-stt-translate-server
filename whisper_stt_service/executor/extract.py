@@ -60,7 +60,9 @@ def run_extract(
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        # ffmpeg 可能持续写 stderr；若无人消费 PIPE 会导致子进程阻塞。
+        # 合并到 stdout，避免在长视频抽取阶段卡死在 99% 附近。
+        stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
     )
@@ -90,10 +92,7 @@ def run_extract(
 
     ret = proc.wait(timeout=max(timeout_sec, 1))
     if ret != 0:
-        stderr_text = ""
-        if proc.stderr is not None:
-            stderr_text = proc.stderr.read().strip()
-        raise RuntimeError(f"ffmpeg extraction failed: {stderr_text}")
+        raise RuntimeError("ffmpeg extraction failed")
 
     _emit_progress(
         progress_queue,

@@ -14,8 +14,10 @@ from typing import Any
 from whisper_stt_service.core.config import Settings
 from whisper_stt_service.executor import (
     build_stt_effective_config,
+    build_stt_whisperx_effective_config,
     run_extract,
     run_stt,
+    run_stt_whisperx,
     run_translate,
 )
 from whisper_stt_service.core.progress import ProgressStore
@@ -74,6 +76,9 @@ class WorkerRuntime:
 
         self._spawn_stage_workers("extract", self.settings.workers.extract_workers)
         self._spawn_stage_workers("stt", self.settings.workers.stt_workers)
+        self._spawn_stage_workers(
+            "stt_whisperx", self.settings.workers.stt_whisperx_workers
+        )
         self._spawn_stage_workers("translate", self.settings.workers.translate_workers)
         return recovered
 
@@ -306,6 +311,71 @@ class WorkerRuntime:
                         task_id=ctx.task_id,
                         worker_id=worker_id,
                     )
+                elif stage == "stt_whisperx":
+                    effective_config = run_stt_whisperx(
+                        Path(ctx.video_path),
+                        Path(ctx.output_ja_path),
+                        language=ctx.source_language,
+                        timeout_sec=int(task_cfg.get("timeout_sec", ctx.timeout_sec)),
+                        model=str(
+                            task_cfg.get("model", self.settings.stt_whisperx.model)
+                        ),
+                        device=str(
+                            task_cfg.get("device", self.settings.stt_whisperx.device)
+                        ),
+                        compute_type=str(
+                            task_cfg.get(
+                                "compute_type", self.settings.stt_whisperx.compute_type
+                            )
+                        ),
+                        batch_size=int(
+                            task_cfg.get(
+                                "batch_size", self.settings.stt_whisperx.batch_size
+                            )
+                        ),
+                        vad_config_path=str(
+                            task_cfg.get(
+                                "vad_config_path",
+                                str(self.settings.stt_whisperx.vad_config_path),
+                            )
+                        ),
+                        align_model_root=str(
+                            task_cfg.get(
+                                "align_model_root",
+                                str(self.settings.stt_whisperx.align_model_root),
+                            )
+                        ),
+                        align_enabled=bool(
+                            task_cfg.get(
+                                "align_enabled",
+                                self.settings.stt_whisperx.align_enabled,
+                            )
+                        ),
+                        vad_backend=str(
+                            task_cfg.get(
+                                "vad_backend", self.settings.stt_whisperx.vad_backend
+                            )
+                        ),
+                        vad_onset=float(
+                            task_cfg.get(
+                                "vad_onset", self.settings.stt_whisperx.vad_onset
+                            )
+                        ),
+                        vad_offset=float(
+                            task_cfg.get(
+                                "vad_offset", self.settings.stt_whisperx.vad_offset
+                            )
+                        ),
+                        local_files_only=bool(
+                            task_cfg.get(
+                                "local_files_only",
+                                self.settings.stt_whisperx.local_files_only,
+                            )
+                        ),
+                        progress_queue=self._progress_queue,
+                        task_id=ctx.task_id,
+                        worker_id=worker_id,
+                    )
                 elif stage == "translate":
                     run_translate(
                         Path(ctx.output_ja_path),
@@ -335,7 +405,7 @@ class WorkerRuntime:
                         "attempt": ctx.attempt,
                         **(
                             {"effective_config": effective_config}
-                            if stage == "stt"
+                            if stage in {"stt", "stt_whisperx"}
                             else {}
                         ),
                     },
@@ -395,6 +465,23 @@ class WorkerRuntime:
                 hallucination_silence_threshold=self.settings.stt.hallucination_silence_threshold,
                 initial_prompt=self.settings.stt.initial_prompt,
                 hotwords=self.settings.stt.hotwords,
+            )
+        if stage == "stt_whisperx":
+            payload["effective_config"] = build_stt_whisperx_effective_config(
+                model=self.settings.stt_whisperx.model,
+                language=ctx.source_language,
+                timeout_sec=ctx.timeout_sec,
+                max_retries=ctx.max_retries,
+                device=self.settings.stt_whisperx.device,
+                compute_type=self.settings.stt_whisperx.compute_type,
+                batch_size=self.settings.stt_whisperx.batch_size,
+                vad_config_path=str(self.settings.stt_whisperx.vad_config_path),
+                align_model_root=str(self.settings.stt_whisperx.align_model_root),
+                align_enabled=self.settings.stt_whisperx.align_enabled,
+                vad_backend=self.settings.stt_whisperx.vad_backend,
+                vad_onset=self.settings.stt_whisperx.vad_onset,
+                vad_offset=self.settings.stt_whisperx.vad_offset,
+                local_files_only=self.settings.stt_whisperx.local_files_only,
             )
         return payload
 

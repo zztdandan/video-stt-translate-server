@@ -63,7 +63,9 @@ def _resolve_runtime_path(base_path: Path, value: Path) -> Path:
     return (base_path.parent / value).resolve()
 
 
-def _build_stage_effective_defaults(settings: Settings) -> dict[str, dict]:
+def _build_stage_effective_defaults(
+    settings: Settings, config_path: Path
+) -> dict[str, dict]:
     """集中构造各阶段默认配置，便于后续扩展更多阶段。"""
 
     return {
@@ -88,6 +90,29 @@ def _build_stage_effective_defaults(settings: Settings) -> dict[str, dict]:
             "hallucination_silence_threshold": settings.stt.hallucination_silence_threshold,
             "initial_prompt": settings.stt.initial_prompt,
             "hotwords": settings.stt.hotwords,
+        },
+        "stt_whisperx": {
+            "model": str(
+                _resolve_runtime_path(config_path, Path(settings.stt_whisperx.model))
+            ),
+            "device": settings.stt_whisperx.device,
+            "compute_type": settings.stt_whisperx.compute_type,
+            "batch_size": settings.stt_whisperx.batch_size,
+            "vad_config_path": str(
+                _resolve_runtime_path(
+                    config_path, settings.stt_whisperx.vad_config_path
+                )
+            ),
+            "align_model_root": str(
+                _resolve_runtime_path(
+                    config_path, settings.stt_whisperx.align_model_root
+                )
+            ),
+            "align_enabled": settings.stt_whisperx.align_enabled,
+            "vad_backend": settings.stt_whisperx.vad_backend,
+            "vad_onset": settings.stt_whisperx.vad_onset,
+            "vad_offset": settings.stt_whisperx.vad_offset,
+            "local_files_only": settings.stt_whisperx.local_files_only,
         },
         "translate": {
             "chunk_minutes": 30,
@@ -114,14 +139,16 @@ def build_app() -> FastAPI:
         stage_max_retries={
             "extract": settings.retry.extract_max_retries,
             "stt": settings.retry.stt_max_retries,
+            "stt_whisperx": settings.retry.stt_whisperx_max_retries,
             "translate": settings.retry.translate_max_retries,
         },
         stage_timeouts={
             "extract": settings.timeouts.extract_timeout_sec,
             "stt": settings.timeouts.stt_timeout_sec,
+            "stt_whisperx": settings.timeouts.stt_whisperx_timeout_sec,
             "translate": settings.timeouts.translate_timeout_sec,
         },
-        stage_effective_defaults=_build_stage_effective_defaults(settings),
+        stage_effective_defaults=_build_stage_effective_defaults(settings, config_path),
         log_root=log_root,
     )
     progress_store = ProgressStore(settings.runtime.progress_ttl_sec)
