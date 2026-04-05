@@ -1,4 +1,4 @@
-# video-stt-translate-server v0.1.0
+# video-stt-translate-server v0.2.0
 
 Whisper STT + translation service for batch video processing.
 
@@ -13,11 +13,14 @@ This project is a fully local movie subtitle translation system.
 
 If you are new to the project, start with the CLI path to validate model/runtime settings, then move to the service path for large-scale processing.
 
-## What this release includes
+## What v0.2.0 includes
 
 - A locally runnable CLI conversion flow under `whisper_stt/`.
-- A REST service that can be started for API access under `whisper_stt_service/`.
-- An end-to-end verification flow under `tests/e2e/run_e2e_real_flow.py` to validate behavior and API endpoints.
+- A REST service with queue workers and explicit DAG planning under `whisper_stt_service/`.
+- Readable `job_id` / `task_id` generation, plus job archive support (`POST /jobs/{job_id}/archive`) for reusable video paths.
+- Configurable STT batch runtime knobs (`[stt] batch_size` and related options) and runtime-effective STT config logging.
+- Subtitle output copy-back support via `[translation] copy_back` for delivering `.ja.srt` and `.zh.srt` back to the source video directory.
+- End-to-end verification flows in `tests/e2e/run_e2e_real_flow.py` and explicit DAG gate runner coverage.
 
 ## Project layout
 
@@ -43,6 +46,12 @@ Use your own local model path in `config.ini` (`runtime.model_path`) or via envi
 
 ```bash
 uv sync --group dev
+```
+
+Optional GPU runtime dependencies:
+
+```bash
+uv sync --group dev --group gpu
 ```
 
 ## Configuration
@@ -140,6 +149,9 @@ uv run pytest -q
 - Job archive API is available (`POST /jobs/{job_id}/archive`) to release reused video paths with history retained.
 - Explicit DAG E2E gate is available (5-minute baseline + 1-minute continuous check, with monitor/server/task log verification).
 - Readable `job_id` / `task_id` generation is available (type + task name + stage + timestamp + short suffix, with collision retry).
+- Translate stage subtitle copy-back is available (`[translation] copy_back`) so final subtitles can be returned to source video directories.
+- STT runtime knobs are configurable (`[stt] batch_size` and related fields) and effective runtime config is logged in worker task logs.
+- Optional `uv` GPU dependency group is available for reproducible CUDA environment setup.
 
 ### Planned
 

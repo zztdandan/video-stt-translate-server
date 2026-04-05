@@ -1,4 +1,4 @@
-# video-stt-translate-server v0.1.0
+# video-stt-translate-server v0.2.0
 
 Whisper STT + translation service for batch video processing.
 
@@ -13,11 +13,14 @@ Whisper STT + translation service for batch video processing.
 
 如果你是第一次使用，建议先走 CLI 路径确认模型与参数，再切换到服务化路径进行批处理。
 
-## 这个 0.1.0 版本包含什么
+## 这个 0.2.0 版本包含什么
 
 - 提供一套可本地运行的 CLI 转化方案，位于 `whisper_stt/`。
-- 提供一个可通过 REST 访问的服务实现，位于 `whisper_stt_service/`。
-- 提供端到端验证脚本 `tests/e2e/run_e2e_real_flow.py`，用于验证流程效果与接口行为。
+- 提供一个带队列 worker 与显式 DAG 规划能力的 REST 服务实现，位于 `whisper_stt_service/`。
+- 提供可读 `job_id` / `task_id` 生成规则，并支持 Job 归档接口（`POST /jobs/{job_id}/archive`）以释放视频路径复用资格。
+- 提供可配置的 STT 运行参数（如 `[stt] batch_size`）与 worker 日志中的生效配置记录。
+- 提供 `[translation] copy_back` 字幕回写能力，可将 `.ja.srt` / `.zh.srt` 回传到源视频目录。
+- 提供端到端验证脚本 `tests/e2e/run_e2e_real_flow.py` 以及显式 DAG 验收脚本，用于验证流程效果与接口行为。
 
 ## 目录说明
 
@@ -43,6 +46,12 @@ Whisper STT + translation service for batch video processing.
 
 ```bash
 uv sync --group dev
+```
+
+如需 GPU 运行依赖，可选安装：
+
+```bash
+uv sync --group dev --group gpu
 ```
 
 ## 配置文件策略
@@ -140,6 +149,9 @@ uv run pytest -q
 - 已实现 Job 归档接口（`POST /jobs/{job_id}/archive`），可在保留历史的同时释放路径复用资格。
 - 已实现显式 DAG 的 E2E 验收门（首轮 5 分钟 + 连续 1 分钟，且监控/服务/task 日志无错误）。
 - 已实现可读 `job_id` / `task_id` 生成规则（类型 + task_name + stage + 时间戳 + 短后缀，并带主键冲突重试）。
+- 已实现 translate 阶段字幕回写（`[translation] copy_back`），可将最终字幕回传至源视频目录。
+- 已实现 STT 运行参数可配置（含 `[stt] batch_size` 等）并在 worker task 日志中记录生效配置。
+- 已实现 `uv` 可选 GPU 依赖组，便于可复现 CUDA 运行环境搭建。
 
 ### 规划中
 
