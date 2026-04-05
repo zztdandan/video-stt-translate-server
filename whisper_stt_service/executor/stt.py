@@ -7,7 +7,11 @@ from queue import Queue
 from typing import Any
 import time
 
-from whisper_stt_service.executor.common import _emit_progress, _probe_duration, preclean_output
+from whisper_stt_service.executor.common import (
+    _emit_progress,
+    _probe_duration,
+    preclean_output,
+)
 
 
 def _format_timestamp(seconds: float) -> str:
@@ -47,6 +51,7 @@ def build_stt_effective_config(
     max_retries: int,
     device: str,
     compute_type: str,
+    batch_size: int,
     beam_size: int,
     best_of: int,
     patience: float,
@@ -67,6 +72,12 @@ def build_stt_effective_config(
     """构造 STT 实际生效参数快照，便于日志审计与问题排查。"""
 
     resolved_device, resolved_compute = _resolve_runtime(device, compute_type)
+    normalized_batch_size = max(batch_size, 1)
+    use_batched_pipeline = (
+        resolved_device == "cuda"
+        and normalized_batch_size > 1
+        and not condition_on_previous_text
+    )
     return {
         "timeout_sec": int(timeout_sec),
         "max_retries": int(max_retries),
@@ -76,6 +87,8 @@ def build_stt_effective_config(
         "compute_type": compute_type,
         "resolved_device": resolved_device,
         "resolved_compute_type": resolved_compute,
+        "batch_size": normalized_batch_size,
+        "use_batched_pipeline": use_batched_pipeline,
         "beam_size": max(beam_size, 1),
         "best_of": max(best_of, 1),
         "patience": max(patience, 0.1),
@@ -104,6 +117,7 @@ def run_stt(
     model: str = "models/faster-whisper-small",
     device: str = "auto",
     compute_type: str = "auto",
+    batch_size: int = 8,
     beam_size: int = 5,
     best_of: int = 5,
     patience: float = 1.0,
@@ -132,7 +146,7 @@ def run_stt(
     output_ja_srt.parent.mkdir(parents=True, exist_ok=True)
 
     # 惰性导入，避免服务仅做队列查询时就加载大模型依赖。
-    from faster_whisper import WhisperModel
+    from faster_whisper import BatchedInferencePipeline, WhisperModel
 
     effective_config = build_stt_effective_config(
         model=model,
@@ -141,6 +155,7 @@ def run_stt(
         max_retries=0,
         device=device,
         compute_type=compute_type,
+        batch_size=batch_size,
         beam_size=beam_size,
         best_of=best_of,
         patience=patience,
@@ -166,6 +181,9 @@ def run_stt(
         compute_type=resolved_compute,
         local_files_only=True,
     )
+    batched_runner = None
+    if bool(effective_config["use_batched_pipeline"]):
+        batched_runner = BatchedInferencePipeline(model=model_runtime)
 
     media_duration = _probe_duration(input_video)
     started = time.perf_counter()
@@ -203,10 +221,17 @@ def run_stt(
     if str(effective_config["hotwords"]):
         transcribe_kwargs["hotwords"] = str(effective_config["hotwords"])
 
-    segments, _ = model_runtime.transcribe(
-        str(input_video),
-        **transcribe_kwargs,
-    )
+    if batched_runner is not None:
+        batched_kwargs = dict(transcribe_kwargs)
+        batched_kwargs["batch_size"] = int(effective_config["batch_size"])
+        batched_kwargs["without_timestamps"] = False
+        batched_kwargs.pop("condition_on_previous_text", None)
+        segments, _ = batched_runner.transcribe(str(input_video), **batched_kwargs)
+    else:
+        segments, _ = model_runtime.transcribe(
+            str(input_video),
+            **transcribe_kwargs,
+        )
 
     _emit_progress(
         progress_queue,

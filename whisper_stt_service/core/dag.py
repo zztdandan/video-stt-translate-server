@@ -96,6 +96,7 @@ def _validate_stage_config_value(stage: str, key: str, value: object) -> None:
         ("extract", "max_retries"): 0,
         ("stt", "timeout_sec"): 1,
         ("stt", "max_retries"): 0,
+        ("stt", "batch_size"): 1,
         ("stt", "beam_size"): 1,
         ("stt", "best_of"): 1,
         ("stt", "vad_min_speech_duration_ms"): 50,

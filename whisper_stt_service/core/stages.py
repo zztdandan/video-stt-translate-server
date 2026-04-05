@@ -12,6 +12,7 @@ STAGE_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "max_retries",
         "device",
         "compute_type",
+        "batch_size",
         "beam_size",
         "best_of",
         "patience",

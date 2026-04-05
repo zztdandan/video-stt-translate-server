@@ -73,3 +73,11 @@ def test_job_config_rejects_invalid_type() -> None:
     dag = build_default_dag()
     with pytest.raises(ValueError, match="job_config_value_type_invalid"):
         normalize_and_validate_job_config({"stt": {"beam_size": "3"}}, dag)
+
+
+def test_job_config_accepts_stt_batch_size() -> None:
+    """stt.batch_size 应允许作为单任务覆盖参数。"""
+
+    dag = build_default_dag()
+    normalized = normalize_and_validate_job_config({"stt": {"batch_size": 8}}, dag)
+    assert normalized["stt"]["batch_size"] == 8

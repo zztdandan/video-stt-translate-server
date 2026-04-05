@@ -29,7 +29,9 @@ def _resolve_settings() -> tuple[Settings, Path]:
     """解析服务配置文件路径并加载配置。"""
 
     config_path = Path(os.getenv("WHISPER_STT_CONFIG", "config.ini")).resolve()
-    default_example_path = Path(__file__).resolve().parent.parent.parent / "config.example.ini"
+    default_example_path = (
+        Path(__file__).resolve().parent.parent.parent / "config.example.ini"
+    )
     example_path = config_path.with_name("config.example.ini")
     if not example_path.is_file():
         # 支持自定义 WHISPER_STT_CONFIG 路径时回退到仓库内默认模板。
@@ -69,6 +71,7 @@ def _build_stage_effective_defaults(settings: Settings) -> dict[str, dict]:
         "stt": {
             "device": settings.stt.device,
             "compute_type": settings.stt.compute_type,
+            "batch_size": settings.stt.batch_size,
             "beam_size": settings.stt.beam_size,
             "best_of": settings.stt.best_of,
             "patience": settings.stt.patience,

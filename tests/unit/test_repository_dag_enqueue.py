@@ -36,7 +36,7 @@ def test_enqueue_persists_explicit_dag_and_job_config(tmp_path: Path) -> None:
             {"stage": "stt", "depends_on": ["extract"]},
         ],
     }
-    job_config = {"stt": {"beam_size": 3, "best_of": 3}}
+    job_config = {"stt": {"batch_size": 8, "beam_size": 3, "best_of": 3}}
 
     created = repo.enqueue(
         video_path="/tmp/b.mp4", language="ja", dag=dag, job_config=job_config
@@ -44,6 +44,8 @@ def test_enqueue_persists_explicit_dag_and_job_config(tmp_path: Path) -> None:
     detail = repo.get_job_detail(created.job_id)
     assert detail is not None
     assert [x["stage"] for x in detail["dag"]["stages"]] == ["extract", "stt"]
+    assert detail["job_config"]["stt"]["batch_size"] == 8
     assert detail["job_config"]["stt"]["beam_size"] == 3
     stt_task = [t for t in detail["tasks"] if t["stage"] == "stt"][0]
+    assert stt_task["task_config"]["effective_config"]["batch_size"] == 8
     assert stt_task["task_config"]["effective_config"]["beam_size"] == 3

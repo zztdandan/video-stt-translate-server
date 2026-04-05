@@ -57,6 +57,7 @@ class SttSettings:
 
     device: str
     compute_type: str
+    batch_size: int
     beam_size: int
     best_of: int
     patience: float
@@ -187,6 +188,7 @@ def load_settings(config_path: Path) -> Settings:
     stt = SttSettings(
         device=cp.get("stt", "device", fallback="auto"),
         compute_type=cp.get("stt", "compute_type", fallback="auto"),
+        batch_size=max(cp.getint("stt", "batch_size", fallback=8), 1),
         beam_size=max(cp.getint("stt", "beam_size", fallback=5), 1),
         best_of=max(cp.getint("stt", "best_of", fallback=5), 1),
         patience=max(cp.getfloat("stt", "patience", fallback=1.0), 0.1),

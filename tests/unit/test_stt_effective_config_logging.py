@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+import sys
 
 from whisper_stt_service.config import (
     RetrySettings,
@@ -48,6 +50,7 @@ def _fake_settings() -> Settings:
         stt=SttSettings(
             device="auto",
             compute_type="auto",
+            batch_size=8,
             beam_size=3,
             best_of=3,
             patience=1.0,
@@ -83,6 +86,7 @@ def test_build_stt_effective_config_contains_resolved_runtime(monkeypatch) -> No
         max_retries=2,
         device="auto",
         compute_type="auto",
+        batch_size=8,
         beam_size=3,
         best_of=3,
         patience=1.0,
@@ -105,6 +109,8 @@ def test_build_stt_effective_config_contains_resolved_runtime(monkeypatch) -> No
     assert payload["compute_type"] == "auto"
     assert payload["resolved_device"] == "cuda"
     assert payload["resolved_compute_type"] == "float16"
+    assert payload["batch_size"] == 8
+    assert payload["use_batched_pipeline"] is True
     assert payload["beam_size"] == 3
 
 
@@ -123,6 +129,7 @@ def test_worker_task_started_extra_contains_stt_effective_config(monkeypatch) ->
         lambda **kwargs: {
             "device": kwargs["device"],
             "compute_type": kwargs["compute_type"],
+            "batch_size": kwargs["batch_size"],
             "resolved_device": "cuda",
             "resolved_compute_type": "float16",
         },
@@ -148,4 +155,116 @@ def test_worker_task_started_extra_contains_stt_effective_config(monkeypatch) ->
     assert extra["attempt"] == 1
     assert extra["max_retries"] == 2
     assert "effective_config" in extra
+    assert extra["effective_config"]["batch_size"] == 8
     assert extra["effective_config"]["resolved_device"] == "cuda"
+
+
+def test_run_stt_uses_batched_pipeline_for_cuda_batching(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """CUDA 且 batch_size>1 时应走 batched pipeline。"""
+
+    calls: dict[str, object] = {}
+
+    class FakeWhisperModel:
+        def __init__(self, *args, **kwargs) -> None:
+            calls["model_init"] = {"args": args, "kwargs": kwargs}
+
+    class FakeBatchedInferencePipeline:
+        def __init__(self, model) -> None:
+            calls["pipeline_model"] = model
+
+        def transcribe(self, audio, **kwargs):
+            calls["batched_transcribe"] = {"audio": audio, "kwargs": kwargs}
+            return iter([SimpleNamespace(text=" hello ", start=0.0, end=1.5)]), None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        SimpleNamespace(
+            WhisperModel=FakeWhisperModel,
+            BatchedInferencePipeline=FakeBatchedInferencePipeline,
+        ),
+    )
+    monkeypatch.setattr(
+        "whisper_stt_service.executor.stt._probe_duration", lambda _path: 10.0
+    )
+    monkeypatch.setattr(
+        "whisper_stt_service.executor.stt._emit_progress",
+        lambda *args, **kwargs: None,
+    )
+
+    input_audio = tmp_path / "demo.wav"
+    output_srt = tmp_path / "demo.ja.srt"
+    input_audio.write_bytes(b"fake-audio")
+
+    payload = build_stt_effective_config(
+        model="/tmp/model",
+        language="ja",
+        timeout_sec=60,
+        max_retries=0,
+        device="cuda",
+        compute_type="float16",
+        batch_size=8,
+        beam_size=3,
+        best_of=3,
+        patience=1.0,
+        condition_on_previous_text=False,
+        vad_filter=True,
+        vad_threshold=0.45,
+        vad_min_speech_duration_ms=200,
+        vad_max_speech_duration_s=18.0,
+        vad_min_silence_duration_ms=700,
+        vad_speech_pad_ms=300,
+        no_speech_threshold=0.6,
+        compression_ratio_threshold=2.2,
+        log_prob_threshold=-1.0,
+        hallucination_silence_threshold=1.5,
+        initial_prompt="",
+        hotwords="",
+    )
+    assert payload["use_batched_pipeline"] is True
+
+    from whisper_stt_service.executor.stt import run_stt
+
+    result = run_stt(
+        input_audio,
+        output_srt,
+        language="ja",
+        timeout_sec=60,
+        model="/tmp/model",
+        device="cuda",
+        compute_type="float16",
+        batch_size=8,
+        beam_size=3,
+        best_of=3,
+    )
+
+    assert result["use_batched_pipeline"] is True
+    assert calls["batched_transcribe"] == {
+        "audio": str(input_audio),
+        "kwargs": {
+            "language": "ja",
+            "beam_size": 3,
+            "best_of": 3,
+            "patience": 1.0,
+            "vad_filter": True,
+            "vad_parameters": {
+                "threshold": 0.45,
+                "min_speech_duration_ms": 200,
+                "max_speech_duration_s": 18.0,
+                "min_silence_duration_ms": 700,
+                "speech_pad_ms": 300,
+            },
+            "no_speech_threshold": 0.6,
+            "compression_ratio_threshold": 2.2,
+            "log_prob_threshold": -1.0,
+            "hallucination_silence_threshold": 1.5,
+            "batch_size": 8,
+            "without_timestamps": False,
+        },
+    }
+    assert (
+        output_srt.read_text(encoding="utf-8")
+        == "1\n00:00:00,000 --> 00:00:01,500\nhello\n\n"
+    )

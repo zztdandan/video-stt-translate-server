@@ -35,7 +35,11 @@ from whisper_stt_service.repo.dependency_payload import (
     decode_dependency_payload,
     encode_dependency_payload,
 )
-from whisper_stt_service.repo.models import ClaimedTask, EnqueueResult, TaskExecutionContext
+from whisper_stt_service.repo.models import (
+    ClaimedTask,
+    EnqueueResult,
+    TaskExecutionContext,
+)
 
 
 class JobRepository:
@@ -68,6 +72,7 @@ class JobRepository:
             "stt": {
                 "device": "auto",
                 "compute_type": "auto",
+                "batch_size": 8,
                 "beam_size": 5,
                 "best_of": 5,
                 "patience": 1.0,

@@ -221,6 +221,9 @@ class WorkerRuntime:
                         compute_type=str(
                             task_cfg.get("compute_type", self.settings.stt.compute_type)
                         ),
+                        batch_size=int(
+                            task_cfg.get("batch_size", self.settings.stt.batch_size)
+                        ),
                         beam_size=int(
                             task_cfg.get("beam_size", self.settings.stt.beam_size)
                         ),
@@ -373,6 +376,7 @@ class WorkerRuntime:
                 max_retries=ctx.max_retries,
                 device=self.settings.stt.device,
                 compute_type=self.settings.stt.compute_type,
+                batch_size=self.settings.stt.batch_size,
                 beam_size=self.settings.stt.beam_size,
                 best_of=self.settings.stt.best_of,
                 patience=self.settings.stt.patience,
