@@ -159,6 +159,9 @@ def main() -> int:
             "--no-access-log",
         ]
     )
+    exit_code = 1
+    exit_reason = "unexpected_exit"
+
     try:
         # 给服务一个最小启动窗口，避免首个请求连接失败。
         time.sleep(2)
@@ -212,14 +215,36 @@ def main() -> int:
             )
 
             if done == len(job_ids):
-                return 0
+                exit_reason = "all_jobs_succeeded"
+                exit_code = 0
+                break
             # 轮询间隔固定 15 秒，平衡时效与请求开销。
             time.sleep(15)
-        return 1
+        else:
+            exit_reason = "deadline_reached"
+            exit_code = 1
+    except KeyboardInterrupt:
+        exit_reason = "interrupted_by_user"
+        exit_code = 130
+    except Exception as exc:
+        exit_reason = f"exception:{type(exc).__name__}:{exc}"
+        exit_code = 1
     finally:
         # 无论成功或失败都尝试回收服务进程。
         server.terminate()
-        server.wait(timeout=10)
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=5)
+
+        print(
+            f"E2E_EXIT code={exit_code} reason={exit_reason} "
+            f"at={datetime.now(timezone.utc).isoformat()}",
+            flush=True,
+        )
+
+    return exit_code
 
 
 if __name__ == "__main__":

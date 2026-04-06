@@ -66,6 +66,7 @@ uv sync --group dev --group gpu
 
 - `workers.extract_workers`
 - `workers.stt_workers`
+- `workers.stt_whisperx_workers`
 - `workers.translate_workers`
 - `timeouts.extract_timeout_sec`
 - `timeouts.stt_timeout_sec`
@@ -80,6 +81,11 @@ uv sync --group dev --group gpu
 - `llm.base_url`
 - `llm.api_key`
 - `llm.model`
+
+WhisperX worker 建议：
+
+- 在长时 GPU 任务中，建议将 `workers.stt_whisperx_workers` 设置为 `<= 2`。
+- 本次版本推荐的最大值为 `2`，用于降低 CUDA OOM 风险。
 
 日志示例：
 
@@ -154,6 +160,7 @@ uv run pytest -q
 - 已实现 STT 运行参数可配置（含 `[stt] batch_size` 等）并在 worker task 日志中记录生效配置。
 - 已实现 `uv` 可选 GPU 依赖组，便于可复现 CUDA 运行环境搭建。
 - 已实现 WhisperX 新阶段（`stt_whisperx`），支持全本地 VAD + batched ASR + 可选 alignment，并完成显式 DAG E2E 覆盖。✅
+- 本次提版已完成 WhisperX 生产化收口，包括重试/恢复能力与 E2E 退出原因可追踪日志。✅
 
 ### 规划中
 

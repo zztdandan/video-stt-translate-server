@@ -193,12 +193,29 @@ def run_stt_whisperx(
 
     whisperx = importlib.import_module("whisperx")
 
+    vad_method = str(effective_config["vad_backend"]).strip().lower()
+    vad_options = {
+        "vad_onset": float(effective_config["vad_onset"]),
+        "vad_offset": float(effective_config["vad_offset"]),
+    }
+    vad_model = None
+    if vad_method == "pyannote":
+        pyannote_mod = importlib.import_module("whisperx.vads.pyannote")
+        vad_model = pyannote_mod.Pyannote(
+            device=str(effective_config["resolved_device"]),
+            token=None,
+            model_fp=str(vad_model_fp),
+            vad_onset=vad_options["vad_onset"],
+            vad_offset=vad_options["vad_offset"],
+        )
+
     asr = whisperx.load_model(
         str(model_path),
         device=str(effective_config["resolved_device"]),
         compute_type=str(effective_config["resolved_compute_type"]),
         language=str(effective_config["language"]),
-        vad_model_fp=str(vad_model_fp),
+        vad_model=vad_model,
+        vad_method=vad_method,
         asr_options={
             # 兼容新版本 faster-whisper 的 TranscriptionOptions 必填字段。
             "max_new_tokens": None,
@@ -206,10 +223,7 @@ def run_stt_whisperx(
             "hallucination_silence_threshold": None,
             "hotwords": None,
         },
-        vad_options={
-            "vad_onset": float(effective_config["vad_onset"]),
-            "vad_offset": float(effective_config["vad_offset"]),
-        },
+        vad_options=vad_options,
     )
 
     media_duration = _probe_duration(input_video)

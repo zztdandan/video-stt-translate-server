@@ -264,6 +264,9 @@ def main(argv: list[str] | None = None) -> int:
     deadline = started_at + max(args.deadline_sec, monitor_sec)
     min_end = started_at + max(monitor_sec, 1)
 
+    exit_code = 1
+    exit_reason = "unexpected_exit"
+
     try:
         time.sleep(2)
         health = session.get(f"{base_url}/docs", timeout=30)
@@ -318,13 +321,27 @@ def main(argv: list[str] | None = None) -> int:
 
             reached_min = time.time() >= min_end
             if failed > 0:
-                return 1
+                exit_reason = f"failed_jobs_detected:{failed}"
+                exit_code = 1
+                break
             if args.run_mode == "until_done" and all_succeeded:
-                return 0
+                exit_reason = "all_jobs_succeeded"
+                exit_code = 0
+                break
             if args.run_mode != "until_done" and reached_min:
-                return 0
+                exit_reason = f"monitor_window_reached:{args.run_mode}"
+                exit_code = 0
+                break
             time.sleep(max(args.poll_sec, 1))
-        return 1
+        else:
+            exit_reason = "deadline_reached"
+            exit_code = 1
+    except KeyboardInterrupt:
+        exit_reason = "interrupted_by_user"
+        exit_code = 130
+    except Exception as exc:
+        exit_reason = f"exception:{type(exc).__name__}:{exc}"
+        exit_code = 1
     finally:
         server.terminate()
         try:
@@ -334,6 +351,14 @@ def main(argv: list[str] | None = None) -> int:
             server.wait(timeout=5)
         finally:
             server_fp.close()
+
+        end_line = (
+            f"E2E_EXIT code={exit_code} reason={exit_reason} "
+            f"at={datetime.now(timezone.utc).isoformat()}"
+        )
+        _append_monitor_lines(monitor_log, [end_line])
+
+    return exit_code
 
 
 if __name__ == "__main__":

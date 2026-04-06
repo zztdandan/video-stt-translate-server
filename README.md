@@ -66,6 +66,7 @@ Required config fields checked at startup:
 
 - `workers.extract_workers`
 - `workers.stt_workers`
+- `workers.stt_whisperx_workers`
 - `workers.translate_workers`
 - `timeouts.extract_timeout_sec`
 - `timeouts.stt_timeout_sec`
@@ -80,6 +81,11 @@ Required config fields checked at startup:
 - `llm.base_url`
 - `llm.api_key`
 - `llm.model`
+
+WhisperX worker recommendation:
+
+- For long-running GPU jobs, set `workers.stt_whisperx_workers` to `<= 2`.
+- The recommended maximum in this release is `2` to reduce CUDA OOM risk.
 
 Example startup log messages:
 
@@ -154,6 +160,7 @@ uv run pytest -q
 - STT runtime knobs are configurable (`[stt] batch_size` and related fields) and effective runtime config is logged in worker task logs.
 - Optional `uv` GPU dependency group is available for reproducible CUDA environment setup.
 - WhisperX stage is available (`stt_whisperx`), including local VAD + batched ASR + optional align path and explicit DAG E2E coverage. ✅
+- This release finalizes WhisperX production rollout, including retry/recovery improvements and deterministic E2E exit-reason logging. ✅
 
 ### Planned
 
