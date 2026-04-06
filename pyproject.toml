@@ -4,6 +4,7 @@ version = "0.3.0"
 description = "Whisper STT + translation service for queued video processing"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dependencies = [
     "fastapi>=0.110.0",
     "faster-whisper>=1.0.3",

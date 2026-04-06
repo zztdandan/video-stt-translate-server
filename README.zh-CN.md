@@ -1,40 +1,46 @@
 # video-stt-translate-server v0.3.0
 
-Whisper STT + translation service for batch video processing.
+面向批量电影翻译的本地流水线系统：将 `ffmpeg` 媒体处理、`Whisper/WhisperX` 语音转写、LLM 字幕翻译整合为一个可编排 DAG。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-## 项目介绍
+## 项目定位
 
-本项目是一个全本地化的电影字幕翻译服务项目。
+本项目的目标是把电影翻译链路中的三个核心能力统一到一个可批处理、可恢复、可观测的执行系统中：
 
-- **轻量 CLI 版本**：可直接在本地命令行运行，适合单视频或小批量快速处理。
-- **服务化版本**：支持分任务、分阶段、流水线式批次调度，可并行利用 CPU/GPU 资源，面向大量视频翻译场景。
+- `extract`：用 `ffmpeg` 抽取/预处理音频。
+- `stt` 或 `stt_whisperx`：用 Faster-Whisper / WhisperX 完成日语字幕转写。
+- `translate`：用大模型把日语字幕翻译为中文字幕。
 
-如果你是第一次使用，建议先走 CLI 路径确认模型与参数，再切换到服务化路径进行批处理。
+服务层通过 DAG 组织任务依赖关系，支持批量视频流水线式处理，并通过 `job_id` / `task_id` 与阶段日志实现可追踪运行。
 
-## 这个 0.3.0 版本包含什么
+## 功能概览（v0.3.0）
 
-- 提供一套可本地运行的 CLI 转化方案，位于 `whisper_stt/`。
-- 提供一个带队列 worker 与显式 DAG 规划能力的 REST 服务实现，位于 `whisper_stt_service/`。
-- 提供可读 `job_id` / `task_id` 生成规则，并支持 Job 归档接口（`POST /jobs/{job_id}/archive`）以释放视频路径复用资格。
-- 提供可配置的 STT 运行参数（如 `[stt] batch_size`）与 worker 日志中的生效配置记录。
-- 提供 `[translation] copy_back` 字幕回写能力，可将 `.ja.srt` / `.zh.srt` 回传到源视频目录。
-- 提供 WhisperX 新阶段能力（`stt_whisperx`），支持本地 VAD + batched ASR + 可选 alignment。
-- 提供端到端验证脚本 `tests/e2e/run_e2e_real_flow.py` 与 `tests/e2e/run_e2e_explicit_dag_flow.py`。
-- 提供确定性 E2E 退出原因日志（`E2E_EXIT ...`），便于运维追踪与排障。
+- 支持脚本模式与服务模式，覆盖单视频到批量队列任务。
+- 支持显式 DAG 与默认 DAG 执行路径，WhisperX 可作为独立阶段接入。
+- 支持字幕产物回写（`[translation] copy_back`），输出 `.ja.srt` 与 `.zh.srt`。
+- 支持可读任务 ID、任务归档、失败重试与中断续跑。
+- 提供端到端验证脚本，支持轮询、超时、退出原因记录（`E2E_EXIT ...`）。
 
 ## 目录说明
 
-- `whisper_stt_service/`：队列化服务主流程（默认 extract -> stt -> translate，显式 DAG 可选 `stt_whisperx`）。
-- `whisper_stt/`：独立脚本（转写/翻译）。
-- `tests/`：单元测试与 e2e 测试。
+- `whisper_stt_service/`：REST 服务、队列 worker、DAG 调度。
+- `whisper_stt/`：本地脚本（转写、翻译）。
+- `tests/`：单元测试与 E2E 驱动脚本。
 
 ## 运行前要求
 
 - Python `>=3.10`
 - 系统可用 `ffmpeg` / `ffprobe`
-- 本地可访问 Faster-Whisper 模型目录
+- 本地可访问 Faster-Whisper 模型目录（`runtime.model_path` 或 `WHISPER_STT_MODEL`）
+- LLM 翻译配置可用（`llm.base_url` / `llm.api_key` / `llm.model`）
+
+支持两种硬件运行方式：
+
+- **纯 CPU 模式**：可完整运行整条流程，适合功能验证和低并发任务。
+- **CUDA 加速模式（NVIDIA GPU）**：在 Whisper/WhisperX 阶段显著提速，适合大批量生产任务。
+
+WhisperX 长时任务建议：`workers.stt_whisperx_workers <= 2`，可显著降低 CUDA OOM 风险。
 
 推荐模型版本：
 
@@ -42,74 +48,37 @@ Whisper STT + translation service for batch video processing.
 - `faster-whisper-large-v3`
 - `faster-whisper-large-v3-turbo`
 
-请在你自己的本地环境中设置模型路径，可通过 `config.ini` 的 `runtime.model_path` 或环境变量 `WHISPER_STT_MODEL` 指定。
-
-## 使用 uv 安装依赖
+## 安装依赖
 
 ```bash
 uv sync --group dev
 ```
 
-如需 GPU 运行依赖，可选安装：
+如需 GPU 依赖：
 
 ```bash
 uv sync --group dev --group gpu
 ```
 
-## 配置文件策略
+## 配置策略
 
-1. 仓库内保留 `config.example.ini`（可提交）。
-2. 本地运行使用 `config.ini`（已在 `.gitignore` 中忽略）。
-3. 启动行为：
-   - 若 `config.ini` 不存在，自动从 `config.example.ini` 生成；
-   - 若必填配置缺失，日志按 `section.option` 形式输出。
+1. `config.example.ini` 作为模板保留在仓库。
+2. `config.ini` 作为本地运行配置（默认不提交）。
+3. 服务启动时若 `config.ini` 不存在，会自动由 `config.example.ini` 生成。
+4. 若缺少必填项，日志会输出 `section.option` 形式的缺失键。
 
-启动时检查的必填项：
+关键配置包括：worker 并发、超时、重试、模型路径、日志路径、LLM 接口配置。
 
-- `workers.extract_workers`
-- `workers.stt_workers`
-- `workers.stt_whisperx_workers`
-- `workers.translate_workers`
-- `timeouts.extract_timeout_sec`
-- `timeouts.stt_timeout_sec`
-- `timeouts.translate_timeout_sec`
-- `timeouts.lease_timeout_sec`
-- `retry.extract_max_retries`
-- `retry.stt_max_retries`
-- `retry.translate_max_retries`
-- `runtime.db_path`
-- `runtime.log_root`
-- `runtime.model_path`
-- `llm.base_url`
-- `llm.api_key`
-- `llm.model`
+## 三种运行模式
 
-WhisperX worker 建议：
-
-- 在长时 GPU 任务中，建议将 `workers.stt_whisperx_workers` 设置为 `<= 2`。
-- 本次版本推荐的最大值为 `2`，用于降低 CUDA OOM 风险。
-
-日志示例：
-
-- `config file not found, created default from example: /abs/path/config.ini`
-- `missing required config entries: llm.api_key, runtime.model_path`
-
-字幕产物路径与回写行为：
-
-- 服务内部产物（`.ja.srt` / `.zh.srt`）默认落在 `runtime.log_root` 同级的 `artifacts/<job_id>/`。
-- 可通过 `[translation] copy_back` 配置 translate 阶段结束后的字幕回写目录。
-- 默认 `copy_back = __video_dir__`，即回写到输入视频所在目录。
-
-## 使用方式 1：脚本/CLI 本地转化
-
-可直接使用仓库脚本执行本地视频处理：
+### 1) Python 脚本模式（适合单视频/调参）
 
 ```bash
 bash scripts/run_video_ja_srt.sh
 bash scripts/run_video_ja_zh.sh
 ```
 
-也可直接运行 CLI：
+或直接调用：
 
 ```bash
 uv run python whisper_stt/transcribe_video.py --help
@@ -117,30 +86,53 @@ uv run python whisper_stt/transcribe_video_whisperx.py --help
 uv run python whisper_stt/translate_srt_ja_to_zh.py --help
 ```
 
-## 使用方式 2：启动 REST 服务
+### 2) 服务模式（适合批量任务）
 
 ```bash
 uv run uvicorn whisper_stt_service.main:app --host 0.0.0.0 --port 18000
 ```
 
-指定配置文件路径：
+指定配置文件：
 
 ```bash
 WHISPER_STT_CONFIG=/abs/path/config.ini uv run uvicorn whisper_stt_service.main:app --host 0.0.0.0 --port 18000
 ```
 
-## 使用方式 3：配置并运行端到端测试
+### 3) E2E 模式（真实链路验证）
 
-1. 编辑 `tests/e2e/video_paths.txt`，填入真实绝对路径视频。
-2. 运行端到端驱动：
+E2E 驱动会自动拉起服务、提交任务、轮询状态并持续记录监控日志，适合验证完整电影翻译流水线。
+
+推荐命令（后台持续运行，含日志落盘）：
 
 ```bash
-uv run python tests/e2e/run_e2e_real_flow.py
+nohup /home/base/repo/video-stt-whisper-server/.venv/bin/python tests/e2e/run_e2e_explicit_dag_flow.py \
+  --run-mode until_done \
+  --video-paths tests/e2e/video_paths.txt \
+  --poll-sec 15 \
+  --deadline-sec 43200 \
+  --monitor-log tmp/e2e/explicit_dag_monitor.log \
+  --server-log tmp/e2e/explicit_dag_server.log \
+  > tmp/e2e/explicit_dag_nohup.log 2>&1 < /dev/null &
+echo $! > tmp/e2e/explicit_dag.pid
 ```
 
-该脚本会自动拉起服务，通过 REST 接口提交任务并轮询状态直到完成（或超时），用于验证完整链路和接口可用性。
+监控方式：
 
-## 运行测试
+```bash
+tail -f tmp/e2e/explicit_dag_monitor.log
+tail -f tmp/e2e/explicit_dag_nohup.log
+```
+
+典型监控日志片段（节选）：
+
+```text
+=== E2E Round 1 @ 2026-04-06T04:46:12.725612+00:00 ===
+jobs_done=0/4; job_status=(queued=2, running=2)
+queue=extract:q=0,c=0,s=19,f=0 | stt_whisperx:q=2,c=2,s=15,f=0 | translate:q=4,c=0,s=15,f=0
+task_logs_root=/.../tmp/logs
+```
+
+## 测试
 
 ```bash
 uv run pytest -q
@@ -148,44 +140,29 @@ uv run pytest -q
 
 ## Roadmap
 
-### 按版本演进树
+### 已完成
 
-- `v0.1.0`
-  - 完成服务化能力（REST API + 后台 worker）。
-  - 完成多任务流水线调度与实时进度轮询。
-- `v0.2.0`
-  - 完成 Job DAG 规划模型（显式依赖图 + 默认 DAG 兼容回退）。
-  - 完成按 stage 的 `job_config` 覆盖与 `task_config` 快照固化。
-  - 完成 Job 归档接口（`POST /jobs/{job_id}/archive`）。
-  - 完成可读 `job_id` / `task_id` 生成规则与冲突重试。
-  - 完成 translate 字幕回写（`[translation] copy_back`）。
-  - 完成 STT 运行参数配置化（含 `[stt] batch_size`）与生效配置日志。
-- `v0.3.0`（本次提版）
-  - 新增 WhisperX 阶段（`stt_whisperx`）：全本地 VAD + batched ASR + 可选 alignment。
-  - 固化 WhisperX 运行依赖基线，提升版本兼容稳定性。
-  - 新增 E2E 测试覆盖：显式 DAG 驱动脚本（`tests/e2e/run_e2e_explicit_dag_flow.py`），支持 baseline/continuous/until_done。
-  - 增加确定性退出原因日志（`E2E_EXIT ...`），可追踪成功/失败/超时/中断原因。
-  - 增强中断恢复能力（failed/claimed 任务回队续跑）并给出运行建议（长时 GPU 任务推荐 `stt_whisperx_workers <= 2`）。
+- [x] `v0.1.0`：REST API + 后台 worker + 基础流水线调度。
+- [x] `v0.2.0`：DAG 规划、任务配置快照、归档接口、字幕回写、STT 参数配置化。
+- [x] `v0.3.0`：WhisperX 阶段、显式 DAG E2E、确定性退出日志、中断续跑增强。
 
 ### 规划中
 
-- MCP 服务化能力，便于标准协议接入与工具互操作。
-- Agent Skill 方案，用于让 agent 更稳定地调用服务能力。
-- 操作与展示界面（Web 控制台），用于任务提交、监控与排障。
-- 容器化交付（Docker / Compose）与可复现部署流程。
-- 可观测性增强（结构化日志、指标、告警）与生产级运维支持。
-- 权限与配额能力（多用户隔离、并发限制、资源治理）。
+- MCP 服务化能力与标准协议接入。
+- Agent Skill 集成与稳定调用方案。
+- Web 控制台（提交、监控、排障）。
+- Docker / Compose 可复现部署。
+- 结构化日志、指标、告警等可观测性增强。
+- 多用户权限、并发限制与资源配额治理。
 
 ## Contributing
 
-欢迎 Issue 与 PR。建议在提交前完成：
+欢迎 Issue 与 PR，提交前建议执行：
 
 ```bash
 uv run pytest -q
 ```
 
-提交时请附上变更说明、测试结果和必要的运行截图/日志。
-
 ## License
 
-本项目遵循仓库内许可证文件，详见 `LICENSE`。
+本项目采用 MIT 许可证，详见 `LICENSE`。
