@@ -1,4 +1,4 @@
-# video-stt-translate-server v0.2.0
+# video-stt-translate-server v0.3.0
 
 Whisper STT + translation service for batch video processing.
 
@@ -13,14 +13,16 @@ This project is a fully local movie subtitle translation system.
 
 If you are new to the project, start with the CLI path to validate model/runtime settings, then move to the service path for large-scale processing.
 
-## What v0.2.0 includes
+## What v0.3.0 includes
 
 - A locally runnable CLI conversion flow under `whisper_stt/`.
 - A REST service with queue workers and explicit DAG planning under `whisper_stt_service/`.
 - Readable `job_id` / `task_id` generation, plus job archive support (`POST /jobs/{job_id}/archive`) for reusable video paths.
 - Configurable STT batch runtime knobs (`[stt] batch_size` and related options) and runtime-effective STT config logging.
 - Subtitle output copy-back support via `[translation] copy_back` for delivering `.ja.srt` and `.zh.srt` back to the source video directory.
-- End-to-end verification flows in `tests/e2e/run_e2e_real_flow.py` and explicit DAG gate runner coverage.
+- WhisperX stage support (`stt_whisperx`) with local VAD + batched ASR + optional alignment.
+- End-to-end verification flows in `tests/e2e/run_e2e_real_flow.py` and `tests/e2e/run_e2e_explicit_dag_flow.py`.
+- Deterministic E2E exit reason logging (`E2E_EXIT ...`) for operational traceability.
 
 ## Project layout
 
@@ -146,21 +148,24 @@ uv run pytest -q
 
 ## Roadmap
 
-### Implemented
+### Versioned delivery tree
 
-- Service runtime is available (REST APIs + background workers).
-- Highly controllable multi-task pipeline scheduling is available for stepwise large-batch subtitle translation.
-- Real-time task progress querying and status polling are available.
-- Job DAG planning model is available (explicit stage dependency graph + default DAG fallback).
-- Stage-level `job_config` override and `task_config` snapshot solidification are available.
-- Job archive API is available (`POST /jobs/{job_id}/archive`) to release reused video paths with history retained.
-- Explicit DAG E2E gate is available (5-minute baseline + 1-minute continuous check, with monitor/server/task log verification).
-- Readable `job_id` / `task_id` generation is available (type + task name + stage + timestamp + short suffix, with collision retry).
-- Translate stage subtitle copy-back is available (`[translation] copy_back`) so final subtitles can be returned to source video directories.
-- STT runtime knobs are configurable (`[stt] batch_size` and related fields) and effective runtime config is logged in worker task logs.
-- Optional `uv` GPU dependency group is available for reproducible CUDA environment setup.
-- WhisperX stage is available (`stt_whisperx`), including local VAD + batched ASR + optional align path and explicit DAG E2E coverage. ✅
-- This release finalizes WhisperX production rollout, including retry/recovery improvements and deterministic E2E exit-reason logging. ✅
+- `v0.1.0`
+  - Service runtime (REST APIs + background workers).
+  - Multi-task pipeline scheduling and real-time progress polling.
+- `v0.2.0`
+  - Job DAG planning model (explicit dependency graph + default DAG fallback).
+  - Stage-level `job_config` overrides and `task_config` snapshot solidification.
+  - Job archive API (`POST /jobs/{job_id}/archive`).
+  - Readable `job_id` / `task_id` generation with collision retry.
+  - Translate subtitle copy-back (`[translation] copy_back`).
+  - STT runtime knobs (including `[stt] batch_size`) and effective-config logging.
+- `v0.3.0` (this release)
+  - WhisperX stage (`stt_whisperx`) with local VAD + batched ASR + optional alignment.
+  - Official dependency baseline for WhisperX runtime compatibility.
+  - New E2E coverage added: explicit DAG runner (`tests/e2e/run_e2e_explicit_dag_flow.py`) with baseline/continuous/until_done modes.
+  - Deterministic E2E exit-reason logging (`E2E_EXIT ...`) for success/failure/timeout/interruption traceability.
+  - Recovery hardening for interrupted runs (failed/claimed task requeue path) and operational guidance (`stt_whisperx_workers <= 2` recommended for long GPU runs).
 
 ### Planned
 

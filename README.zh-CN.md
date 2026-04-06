@@ -1,4 +1,4 @@
-# video-stt-translate-server v0.2.0
+# video-stt-translate-server v0.3.0
 
 Whisper STT + translation service for batch video processing.
 
@@ -13,14 +13,16 @@ Whisper STT + translation service for batch video processing.
 
 如果你是第一次使用，建议先走 CLI 路径确认模型与参数，再切换到服务化路径进行批处理。
 
-## 这个 0.2.0 版本包含什么
+## 这个 0.3.0 版本包含什么
 
 - 提供一套可本地运行的 CLI 转化方案，位于 `whisper_stt/`。
 - 提供一个带队列 worker 与显式 DAG 规划能力的 REST 服务实现，位于 `whisper_stt_service/`。
 - 提供可读 `job_id` / `task_id` 生成规则，并支持 Job 归档接口（`POST /jobs/{job_id}/archive`）以释放视频路径复用资格。
 - 提供可配置的 STT 运行参数（如 `[stt] batch_size`）与 worker 日志中的生效配置记录。
 - 提供 `[translation] copy_back` 字幕回写能力，可将 `.ja.srt` / `.zh.srt` 回传到源视频目录。
-- 提供端到端验证脚本 `tests/e2e/run_e2e_real_flow.py` 以及显式 DAG 验收脚本，用于验证流程效果与接口行为。
+- 提供 WhisperX 新阶段能力（`stt_whisperx`），支持本地 VAD + batched ASR + 可选 alignment。
+- 提供端到端验证脚本 `tests/e2e/run_e2e_real_flow.py` 与 `tests/e2e/run_e2e_explicit_dag_flow.py`。
+- 提供确定性 E2E 退出原因日志（`E2E_EXIT ...`），便于运维追踪与排障。
 
 ## 目录说明
 
@@ -146,21 +148,24 @@ uv run pytest -q
 
 ## Roadmap
 
-### 已完成
+### 按版本演进树
 
-- 已实现服务化能力（REST API + 后台 worker）。
-- 已实现高度可控的多任务流水线式调度，可分步骤处理大量电影翻译任务。
-- 已实现实时任务进度查看与状态轮询。
-- 已实现 Job DAG 规划模型（显式 stage 依赖图 + 默认 DAG 兼容回退）。
-- 已实现按 stage 的 `job_config` 覆盖与 `task_config` 快照固化。
-- 已实现 Job 归档接口（`POST /jobs/{job_id}/archive`），可在保留历史的同时释放路径复用资格。
-- 已实现显式 DAG 的 E2E 验收门（首轮 5 分钟 + 连续 1 分钟，且监控/服务/task 日志无错误）。
-- 已实现可读 `job_id` / `task_id` 生成规则（类型 + task_name + stage + 时间戳 + 短后缀，并带主键冲突重试）。
-- 已实现 translate 阶段字幕回写（`[translation] copy_back`），可将最终字幕回传至源视频目录。
-- 已实现 STT 运行参数可配置（含 `[stt] batch_size` 等）并在 worker task 日志中记录生效配置。
-- 已实现 `uv` 可选 GPU 依赖组，便于可复现 CUDA 运行环境搭建。
-- 已实现 WhisperX 新阶段（`stt_whisperx`），支持全本地 VAD + batched ASR + 可选 alignment，并完成显式 DAG E2E 覆盖。✅
-- 本次提版已完成 WhisperX 生产化收口，包括重试/恢复能力与 E2E 退出原因可追踪日志。✅
+- `v0.1.0`
+  - 完成服务化能力（REST API + 后台 worker）。
+  - 完成多任务流水线调度与实时进度轮询。
+- `v0.2.0`
+  - 完成 Job DAG 规划模型（显式依赖图 + 默认 DAG 兼容回退）。
+  - 完成按 stage 的 `job_config` 覆盖与 `task_config` 快照固化。
+  - 完成 Job 归档接口（`POST /jobs/{job_id}/archive`）。
+  - 完成可读 `job_id` / `task_id` 生成规则与冲突重试。
+  - 完成 translate 字幕回写（`[translation] copy_back`）。
+  - 完成 STT 运行参数配置化（含 `[stt] batch_size`）与生效配置日志。
+- `v0.3.0`（本次提版）
+  - 新增 WhisperX 阶段（`stt_whisperx`）：全本地 VAD + batched ASR + 可选 alignment。
+  - 固化 WhisperX 运行依赖基线，提升版本兼容稳定性。
+  - 新增 E2E 测试覆盖：显式 DAG 驱动脚本（`tests/e2e/run_e2e_explicit_dag_flow.py`），支持 baseline/continuous/until_done。
+  - 增加确定性退出原因日志（`E2E_EXIT ...`），可追踪成功/失败/超时/中断原因。
+  - 增强中断恢复能力（failed/claimed 任务回队续跑）并给出运行建议（长时 GPU 任务推荐 `stt_whisperx_workers <= 2`）。
 
 ### 规划中
 
