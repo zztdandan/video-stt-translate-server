@@ -87,13 +87,17 @@ def _build_translate_messages(batch: list[SrtEntry]) -> list[dict[str, str]]:
     system_prompt = (
         "You are a professional subtitle translator. Translate Japanese subtitles into natural, concise "
         "Simplified Chinese. Use context and plot continuity to infer omitted subjects, keep naming and tone "
-        "consistent across this whole chunk, and avoid literal word-by-word translation. Think carefully, "
-        "but output ONLY JSON."
+        "consistent across this whole chunk, and avoid literal word-by-word translation. Intelligently clean "
+        "disfluencies and meaningless repetitions (such as long runs of interjections or stutters like "
+        "'ああああ', 'えええ', 'ううう'), compressing them into natural Chinese or removing them when they "
+        "carry no semantic meaning, while preserving the speaker's intent and emotion. Think carefully, but "
+        "output ONLY JSON."
     )
     user_prompt = (
         "Translate the following JSON array from Japanese to Simplified Chinese subtitles. "
         "Return ONLY a JSON array with objects in the form: "
-        '{"id": <same id>, "text_zh": "..."}. Keep the same ids and same item count.\n\n'
+        '{"id": <same id>, "text_zh": "..."}. Keep the same ids and same item count. '
+        "For repetitive filler words, perform intelligent denoising and output fluent subtitles.\n\n"
         f"{json.dumps(payload_items, ensure_ascii=False)}"
     )
     return [

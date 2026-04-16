@@ -285,10 +285,10 @@ def load_settings(config_path: Path) -> Settings:
         align_enabled=cp.getboolean("stt_whisperx", "align_enabled", fallback=True),
         vad_backend=cp.get("stt_whisperx", "vad_backend", fallback="pyannote").strip(),
         vad_onset=min(
-            max(cp.getfloat("stt_whisperx", "vad_onset", fallback=0.5), 0.01), 0.99
+            max(cp.getfloat("stt_whisperx", "vad_onset", fallback=0.35), 0.01), 0.99
         ),
         vad_offset=min(
-            max(cp.getfloat("stt_whisperx", "vad_offset", fallback=0.363), 0.01), 0.99
+            max(cp.getfloat("stt_whisperx", "vad_offset", fallback=0.2), 0.01), 0.99
         ),
         local_files_only=cp.getboolean(
             "stt_whisperx", "local_files_only", fallback=True

@@ -73,3 +73,5 @@ local_files_only = true
     assert settings.stt_whisperx.model == "/tmp/whisperx-model"
     assert settings.stt_whisperx.batch_size == 16
     assert str(settings.stt_whisperx.vad_config_path) == "/tmp/vad/config.yaml"
+    assert settings.stt_whisperx.vad_onset == 0.35
+    assert settings.stt_whisperx.vad_offset == 0.2

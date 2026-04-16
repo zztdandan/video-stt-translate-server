@@ -40,5 +40,8 @@ def test_build_translate_messages_requests_plot_reasoning_context() -> None:
     assert "plot" in system_text
     assert "context" in system_text
     assert "consistent" in system_text
+    assert "disfluencies" in system_text
+    assert "repetitions" in system_text
     assert '"id"' in user_text
     assert '"text_zh"' in user_text
+    assert "denoising" in user_text

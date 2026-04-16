@@ -151,8 +151,8 @@ class JobRepository:
                 "align_model_root": "models/whisperx/align",
                 "align_enabled": True,
                 "vad_backend": "pyannote",
-                "vad_onset": 0.5,
-                "vad_offset": 0.363,
+                "vad_onset": 0.35,
+                "vad_offset": 0.2,
                 "local_files_only": True,
             },
             "translate": {
