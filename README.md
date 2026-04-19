@@ -66,6 +66,7 @@ uv sync --group dev --group gpu
 2. Use `config.ini` for local runtime values.
 3. If `config.ini` is missing, the service auto-generates it from `config.example.ini`.
 4. Missing required keys are logged as `section.option`.
+5. Set `[security] api_token` to enforce global API access control via `X-API-Token`.
 
 ## Three run modes
 
@@ -94,6 +95,21 @@ Config override:
 
 ```bash
 WHISPER_STT_CONFIG=/abs/path/config.ini uv run uvicorn whisper_stt_service.main:app --host 0.0.0.0 --port 18000
+```
+
+All API requests (except docs/openapi pages) must include:
+
+```bash
+-H "X-API-Token: <your_api_token>"
+```
+
+Graceful drain shutdown (stop claiming new tasks, finish in-flight, then exit):
+
+```bash
+curl -X POST "http://127.0.0.1:18000/admin/shutdown" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: <your_api_token>" \
+  -d '{"reason":"manual_shutdown"}'
 ```
 
 ### 3) E2E mode

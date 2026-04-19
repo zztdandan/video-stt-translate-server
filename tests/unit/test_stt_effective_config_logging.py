@@ -9,6 +9,7 @@ import sys
 from whisper_stt_service.config import (
     RetrySettings,
     RuntimeSettings,
+    SecuritySettings,
     Settings,
     SttSettings,
     SttWhisperxSettings,
@@ -85,6 +86,7 @@ def _fake_settings() -> Settings:
             vad_offset=0.363,
             local_files_only=True,
         ),
+        security=SecuritySettings(api_token=""),
     )
 
 

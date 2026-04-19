@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from whisper_stt_service.api.routes.jobs import router as jobs_router
+from whisper_stt_service.api.routes.admin import router as admin_router
 from whisper_stt_service.api.routes.queue import router as queue_router
 from whisper_stt_service.core.progress import ProgressStore
 from whisper_stt_service.repo.database import Database
@@ -20,6 +22,7 @@ def create_app(
     progress_store: ProgressStore | None = None,
     runtime: WorkerRuntime | None = None,
     worker_view: dict | None = None,
+    api_token: str | None = None,
 ) -> FastAPI:
     """创建并返回 FastAPI 应用实例。"""
 
@@ -38,6 +41,33 @@ def create_app(
     app.state.progress_store = progress_store
     app.state.runtime = runtime
     app.state.worker_view = worker_view or {}
+    app.state.api_token = (api_token or "").strip()
+
+    @app.middleware("http")
+    async def _api_token_guard(request, call_next):
+        """按配置启用全局 API Token 鉴权。"""
+
+        configured_token = str(getattr(request.app.state, "api_token", "")).strip()
+        if not configured_token:
+            return await call_next(request)
+
+        exempt_paths = {
+            "/docs",
+            "/openapi.json",
+            "/redoc",
+            "/docs/oauth2-redirect",
+        }
+        if request.url.path in exempt_paths:
+            return await call_next(request)
+
+        provided = request.headers.get("X-API-Token", "").strip()
+        if provided != configured_token:
+            return JSONResponse(
+                status_code=401, content={"detail": "invalid_api_token"}
+            )
+        return await call_next(request)
+
+    app.include_router(admin_router)
     app.include_router(jobs_router)
     app.include_router(queue_router)
     return app

@@ -35,6 +35,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="service base url",
     )
     parser.add_argument(
+        "--api-token",
+        default="",
+        help="global API token for X-API-Token header",
+    )
+    parser.add_argument(
         "--video-paths",
         default="tests/e2e/video_paths.txt",
         help="video paths file",
@@ -225,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parse_args(argv)
     base_url = args.base_url.rstrip("/")
+    api_token = str(args.api_token).strip()
     videos = load_video_paths(Path(args.video_paths))
     monitor_log = Path(args.monitor_log)
     server_log = Path(args.server_log)
@@ -260,6 +266,9 @@ def main(argv: list[str] | None = None) -> int:
 
     session = requests.Session()
     session.trust_env = False
+    headers: dict[str, str] = {}
+    if api_token:
+        headers["X-API-Token"] = api_token
     started_at = time.time()
     deadline = started_at + max(args.deadline_sec, monitor_sec)
     min_end = started_at + max(monitor_sec, 1)
@@ -277,6 +286,7 @@ def main(argv: list[str] | None = None) -> int:
             resp = session.post(
                 f"{base_url}/jobs",
                 json=_build_payload(video_path),
+                headers=headers,
                 timeout=30,
             )
             resp.raise_for_status()
@@ -290,9 +300,11 @@ def main(argv: list[str] | None = None) -> int:
             all_succeeded = True
             snapshots: list[dict] = []
             for job_id in job_ids:
-                job_resp = session.get(f"{base_url}/jobs/{job_id}", timeout=30)
+                job_resp = session.get(
+                    f"{base_url}/jobs/{job_id}", headers=headers, timeout=30
+                )
                 prog_resp = session.get(
-                    f"{base_url}/jobs/{job_id}/progress", timeout=30
+                    f"{base_url}/jobs/{job_id}/progress", headers=headers, timeout=30
                 )
                 job_payload = _safe_json(job_resp)
                 progress_payload = _safe_json(prog_resp)
@@ -309,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
                 snapshots.append(merged)
 
             queue_summary = _safe_json(
-                session.get(f"{base_url}/queue/summary", timeout=30)
+                session.get(f"{base_url}/queue/summary", headers=headers, timeout=30)
             )
             lines = _build_round_lines(
                 round_no=round_no,

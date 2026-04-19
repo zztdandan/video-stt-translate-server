@@ -170,6 +170,11 @@ def build_app() -> FastAPI:
         finally:
             runtime.stop()
 
-    app = create_app(repo=repo, progress_store=progress_store, runtime=runtime)
+    app = create_app(
+        repo=repo,
+        progress_store=progress_store,
+        runtime=runtime,
+        api_token=settings.security.api_token,
+    )
     app.router.lifespan_context = lifespan
     return app

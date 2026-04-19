@@ -876,3 +876,12 @@ class JobRepository:
                     stage_map[stage] = {}
                 stage_map[stage][status] = int(row["c"])
             return {"stages": stage_map}
+
+    def count_claimed_tasks(self) -> int:
+        """返回全局处于 claimed 状态的任务数量。"""
+
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(1) AS c FROM tasks WHERE status='claimed'"
+            ).fetchone()
+            return int(row["c"]) if row is not None else 0

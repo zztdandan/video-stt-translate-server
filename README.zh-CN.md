@@ -66,6 +66,7 @@ uv sync --group dev --group gpu
 2. `config.ini` 作为本地运行配置（默认不提交）。
 3. 服务启动时若 `config.ini` 不存在，会自动由 `config.example.ini` 生成。
 4. 若缺少必填项，日志会输出 `section.option` 形式的缺失键。
+5. 可在 `[security] api_token` 中配置全局 API 访问令牌（请求头 `X-API-Token`）。
 
 关键配置包括：worker 并发、超时、重试、模型路径、日志路径、LLM 接口配置。
 
@@ -96,6 +97,21 @@ uv run uvicorn whisper_stt_service.main:app --host 0.0.0.0 --port 18000
 
 ```bash
 WHISPER_STT_CONFIG=/abs/path/config.ini uv run uvicorn whisper_stt_service.main:app --host 0.0.0.0 --port 18000
+```
+
+除 docs/openapi 页面外，所有 API 请求都需要携带：
+
+```bash
+-H "X-API-Token: <your_api_token>"
+```
+
+优雅停机（停止领取新任务，等待在途任务完成后自动退出）：
+
+```bash
+curl -X POST "http://127.0.0.1:18000/admin/shutdown" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: <your_api_token>" \
+  -d '{"reason":"manual_shutdown"}'
 ```
 
 ### 3) E2E 模式（真实链路验证）

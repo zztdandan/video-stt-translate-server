@@ -18,3 +18,9 @@ class ArchiveJobReq(BaseModel):
     """归档请求体。"""
 
     reason: str = "manual_archive"
+
+
+class ShutdownReq(BaseModel):
+    """优雅停机请求体。"""
+
+    reason: str = "manual_shutdown"

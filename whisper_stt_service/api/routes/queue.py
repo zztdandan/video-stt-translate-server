@@ -21,5 +21,6 @@ def queue_summary(request: Request):
     if runtime is not None:
         workers = runtime.active_workers()
     summary["workers"] = workers
+    summary["shutdown"] = runtime.shutdown_status() if runtime is not None else {}
     summary["throughput"] = {}
     return summary

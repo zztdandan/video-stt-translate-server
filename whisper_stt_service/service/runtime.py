@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import logging
+import os
 from pathlib import Path
 from queue import Empty, Queue
+import signal
 from threading import Event, Lock, Thread
 from time import sleep
 from typing import Any
@@ -22,6 +25,9 @@ from whisper_stt_service.executor import (
 )
 from whisper_stt_service.core.progress import ProgressStore
 from whisper_stt_service.repo.job_repository import JobRepository
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def recover_claimed_to_queued(db) -> int:
@@ -62,10 +68,14 @@ class WorkerRuntime:
         self.model_path = model_path
 
         self._stop_event = Event()
+        self._drain_event = Event()
+        self._exit_triggered_event = Event()
         self._progress_queue: Queue[dict[str, Any]] = Queue(maxsize=4096)
         self._threads: list[Thread] = []
         self._state_lock = Lock()
         self._worker_states: dict[str, WorkerState] = {}
+        self._shutdown_requested_at: str | None = None
+        self._shutdown_reason: str = ""
 
     def start(self) -> int:
         """执行启动恢复并拉起所有后台线程。"""
@@ -73,6 +83,7 @@ class WorkerRuntime:
         recovered = self.repo.recover_claimed_to_queued()
         self._start_thread(self._progress_loop, name="progress-consumer")
         self._start_thread(self._cleanup_loop, name="progress-cleanup")
+        self._start_thread(self._shutdown_watch_loop, name="shutdown-watch")
 
         self._spawn_stage_workers("extract", self.settings.workers.extract_workers)
         self._spawn_stage_workers("stt", self.settings.workers.stt_workers)
@@ -104,6 +115,51 @@ class WorkerRuntime:
                 }
                 for worker_id, state in self._worker_states.items()
             }
+
+    def request_shutdown(self, reason: str = "manual_shutdown") -> dict[str, Any]:
+        """触发 drain：不再领取新任务，并在可退出时优雅退出进程。"""
+
+        with self._state_lock:
+            if not self._drain_event.is_set():
+                self._drain_event.set()
+                self._shutdown_requested_at = datetime.now(timezone.utc).isoformat()
+                self._shutdown_reason = (
+                    reason.strip() if reason.strip() else "manual_shutdown"
+                )
+                LOGGER.warning(
+                    "graceful shutdown requested: reason=%s",
+                    self._shutdown_reason,
+                )
+        return self.shutdown_status()
+
+    def shutdown_status(self) -> dict[str, Any]:
+        """返回 drain 停机状态快照。"""
+
+        with self._state_lock:
+            inflight = sorted(
+                {
+                    str(state.task_id)
+                    for state in self._worker_states.values()
+                    if state.task_id
+                }
+            )
+            requested_at = self._shutdown_requested_at
+            shutdown_reason = self._shutdown_reason
+
+        claimed_count = self.repo.count_claimed_tasks()
+        can_exit = bool(
+            self._drain_event.is_set() and claimed_count == 0 and not inflight
+        )
+        return {
+            "drain_requested": self._drain_event.is_set(),
+            "shutdown_requested_at": requested_at,
+            "shutdown_reason": shutdown_reason,
+            "claimed_count": claimed_count,
+            "inflight_count": len(inflight),
+            "inflight_task_ids": inflight,
+            "can_exit": can_exit,
+            "exit_triggered": self._exit_triggered_event.is_set(),
+        }
 
     def _start_thread(self, target, *, name: str, args: tuple = ()) -> None:
         """统一创建守护线程并保存句柄。"""
@@ -167,6 +223,30 @@ class WorkerRuntime:
         while not self._stop_event.wait(timeout=interval):
             self.progress_store.cleanup()
 
+    def _shutdown_watch_loop(self) -> None:
+        """监听 drain 状态并在可退出时向当前进程发送 SIGTERM。"""
+
+        while not self._stop_event.wait(timeout=1.0):
+            if not self._drain_event.is_set():
+                continue
+            status = self.shutdown_status()
+            if status["can_exit"]:
+                LOGGER.warning(
+                    "graceful shutdown drain complete: claimed=%s inflight=%s",
+                    status["claimed_count"],
+                    status["inflight_count"],
+                )
+                self._trigger_process_exit()
+                return
+
+    def _trigger_process_exit(self) -> None:
+        """仅触发一次优雅退出信号，避免重复发送。"""
+
+        if self._exit_triggered_event.is_set():
+            return
+        self._exit_triggered_event.set()
+        os.kill(os.getpid(), signal.SIGTERM)
+
     def _worker_loop(self, stage: str, worker_id: str) -> None:
         """单个 worker 主循环：领取任务并执行阶段函数。"""
 
@@ -174,6 +254,9 @@ class WorkerRuntime:
         lease = max(self.settings.timeouts.lease_timeout_sec, 1)
         while not self._stop_event.is_set():
             self._set_worker_state(worker_id, stage, None)
+            if self._drain_event.is_set():
+                sleep(poll)
+                continue
             claimed = self.repo.claim_next(
                 stage=stage, worker_id=worker_id, lease_timeout_sec=lease
             )

@@ -97,6 +97,13 @@ class SttWhisperxSettings:
 
 
 @dataclass(frozen=True)
+class SecuritySettings:
+    """API 全局访问控制配置。"""
+
+    api_token: str
+
+
+@dataclass(frozen=True)
 class Settings:
     """服务总配置对象（不可变）。"""
 
@@ -106,6 +113,7 @@ class Settings:
     runtime: RuntimeSettings
     stt: SttSettings
     stt_whisperx: SttWhisperxSettings
+    security: SecuritySettings
 
 
 # 启动前必须存在的配置项（按 section/option 列举）。
@@ -139,6 +147,7 @@ REQUIRED_CONFIG_OPTIONS: dict[str, tuple[str, ...]] = {
         "api_key",
         "model",
     ),
+    "security": ("api_token",),
 }
 
 
@@ -294,6 +303,9 @@ def load_settings(config_path: Path) -> Settings:
             "stt_whisperx", "local_files_only", fallback=True
         ),
     )
+    security = SecuritySettings(
+        api_token=cp.get("security", "api_token", fallback="").strip(),
+    )
     return Settings(
         workers=workers,
         timeouts=timeouts,
@@ -301,4 +313,5 @@ def load_settings(config_path: Path) -> Settings:
         runtime=runtime,
         stt=stt,
         stt_whisperx=stt_whisperx,
+        security=security,
     )
