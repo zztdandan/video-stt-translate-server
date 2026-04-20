@@ -64,6 +64,10 @@ local_files_only = true
     assert settings.workers.stt_whisperx_workers == 2
     assert settings.runtime.progress_ttl_sec == 3600
     assert str(settings.runtime.model_path) == "/tmp/model-dir"
+    assert str(settings.runtime.artifact_root) == "/tmp/artifacts"
+    assert settings.runtime.artifact_cleanup_enabled is True
+    assert settings.runtime.artifact_cleanup_interval_sec == 3600
+    assert settings.runtime.artifact_cleanup_statuses == ("succeeded",)
     assert settings.stt.batch_size == 8
     assert settings.stt.beam_size == 6
     assert settings.stt.vad_threshold == 0.4

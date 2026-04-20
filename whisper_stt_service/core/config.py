@@ -51,6 +51,10 @@ class RuntimeSettings:
     db_path: Path
     progress_ttl_sec: int
     log_root: Path
+    artifact_root: Path
+    artifact_cleanup_enabled: bool
+    artifact_cleanup_interval_sec: int
+    artifact_cleanup_statuses: tuple[str, ...]
     model_path: Path
 
 
@@ -229,6 +233,33 @@ def load_settings(config_path: Path) -> Settings:
         db_path=Path(cp.get("runtime", "db_path")),
         progress_ttl_sec=cp.getint("runtime", "progress_ttl_sec", fallback=3600),
         log_root=Path(cp.get("runtime", "log_root")),
+        artifact_root=Path(
+            cp.get(
+                "runtime",
+                "artifact_root",
+                fallback=str(Path(cp.get("runtime", "log_root")).parent / "artifacts"),
+            )
+        ),
+        artifact_cleanup_enabled=cp.getboolean(
+            "runtime", "artifact_cleanup_enabled", fallback=True
+        ),
+        artifact_cleanup_interval_sec=max(
+            cp.getint("runtime", "artifact_cleanup_interval_sec", fallback=3600), 60
+        ),
+        artifact_cleanup_statuses=tuple(
+            sorted(
+                {
+                    token.strip()
+                    for token in cp.get(
+                        "runtime",
+                        "artifact_cleanup_statuses",
+                        fallback="succeeded",
+                    ).split(",")
+                    if token.strip()
+                }
+                or {"succeeded"}
+            )
+        ),
         model_path=Path(
             cp.get("runtime", "model_path", fallback="models/faster-whisper-small")
         ),

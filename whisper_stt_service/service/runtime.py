@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from queue import Empty, Queue
 import signal
+import shutil
 from threading import Event, Lock, Thread
 from time import sleep
 from typing import Any
@@ -84,6 +85,8 @@ class WorkerRuntime:
         self._start_thread(self._progress_loop, name="progress-consumer")
         self._start_thread(self._cleanup_loop, name="progress-cleanup")
         self._start_thread(self._shutdown_watch_loop, name="shutdown-watch")
+        if self.settings.runtime.artifact_cleanup_enabled:
+            self._start_thread(self._artifact_cleanup_loop, name="artifact-cleanup")
 
         self._spawn_stage_workers("extract", self.settings.workers.extract_workers)
         self._spawn_stage_workers("stt", self.settings.workers.stt_workers)
@@ -222,6 +225,114 @@ class WorkerRuntime:
         interval = max(self.settings.workers.scheduler_interval_sec, 5)
         while not self._stop_event.wait(timeout=interval):
             self.progress_store.cleanup()
+
+    def _artifact_cleanup_loop(self) -> None:
+        """按小时调度清理已完成 job 的 artifact 目录。"""
+
+        interval = max(self.settings.runtime.artifact_cleanup_interval_sec, 60)
+        while not self._stop_event.wait(timeout=interval):
+            self._run_artifact_cleanup_once()
+
+    def _run_artifact_cleanup_once(self) -> None:
+        """执行单轮 artifact 清理并输出摘要日志。"""
+
+        artifact_root = Path(self.repo.artifact_root)
+        cleanup_statuses = tuple(self.settings.runtime.artifact_cleanup_statuses)
+        scanned = 0
+        eligible = 0
+        deleted = 0
+        failed = 0
+
+        try:
+            if not artifact_root.exists():
+                LOGGER.info(
+                    "artifact cleanup tick: root_missing root=%s statuses=%s",
+                    artifact_root,
+                    cleanup_statuses,
+                )
+                return
+            if not artifact_root.is_dir():
+                LOGGER.warning(
+                    "artifact cleanup tick: root_not_dir root=%s statuses=%s",
+                    artifact_root,
+                    cleanup_statuses,
+                )
+                return
+
+            root_resolved = artifact_root.resolve()
+            candidate_dirs: dict[str, Path] = {}
+            for item in artifact_root.iterdir():
+                scanned += 1
+                if item.is_symlink() or not item.is_dir():
+                    continue
+                try:
+                    resolved = item.resolve()
+                except Exception:
+                    continue
+                if resolved.parent != root_resolved:
+                    continue
+                candidate_dirs[item.name] = item
+
+            if not candidate_dirs:
+                LOGGER.info(
+                    "artifact cleanup tick: scanned=%s eligible=%s deleted=%s failed=%s root=%s statuses=%s",
+                    scanned,
+                    eligible,
+                    deleted,
+                    failed,
+                    artifact_root,
+                    cleanup_statuses,
+                )
+                return
+
+            cleanable_job_ids = self.repo.list_job_ids_by_status(
+                job_ids=list(candidate_dirs.keys()),
+                statuses=cleanup_statuses,
+            )
+            eligible = len(cleanable_job_ids)
+
+            for job_id in cleanable_job_ids:
+                target = candidate_dirs.get(job_id)
+                if target is None:
+                    continue
+                # 二次校验，避免目录遍历/软链绕过导致越界删除。
+                try:
+                    target_resolved = target.resolve()
+                except Exception:
+                    failed += 1
+                    continue
+                if target.is_symlink() or target_resolved.parent != root_resolved:
+                    failed += 1
+                    continue
+                if not self.repo.is_job_completed_for_cleanup(
+                    job_id=job_id,
+                    statuses=cleanup_statuses,
+                ):
+                    continue
+                try:
+                    shutil.rmtree(target)
+                    deleted += 1
+                except Exception as exc:  # noqa: BLE001
+                    failed += 1
+                    LOGGER.warning(
+                        "artifact cleanup remove failed: job_id=%s path=%s error=%s",
+                        job_id,
+                        target,
+                        exc,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("artifact cleanup tick failed: error=%s", exc)
+            return
+
+        LOGGER.info(
+            "artifact cleanup tick: scanned=%s eligible=%s deleted=%s failed=%s root=%s statuses=%s",
+            scanned,
+            eligible,
+            deleted,
+            failed,
+            artifact_root,
+            cleanup_statuses,
+        )
 
     def _shutdown_watch_loop(self) -> None:
         """监听 drain 状态并在可退出时向当前进程发送 SIGTERM。"""

@@ -103,6 +103,7 @@ class JobRepository:
         stage_timeouts: dict[str, int] | None = None,
         stage_effective_defaults: dict[str, dict] | None = None,
         log_root: Path | None = None,
+        artifact_root: Path | None = None,
     ) -> None:
         """注入数据库访问对象与可选阶段默认配置。"""
 
@@ -162,6 +163,7 @@ class JobRepository:
             },
         }
         self.log_root = log_root or Path("./tmp/logs")
+        self.artifact_root = artifact_root or (self.log_root.parent / "artifacts")
 
     def _count_queue_ahead(self, conn, now: str) -> int:
         """统计当前排在新任务前方的 job 数量。"""
@@ -187,12 +189,43 @@ class JobRepository:
     def _build_output_paths(self, job_id: str, video_path: str) -> tuple[str, str]:
         """把阶段产物放到可写 artifact 目录，避免污染源视频目录。"""
 
-        artifact_dir = self.log_root.parent / "artifacts" / job_id
+        artifact_dir = self.artifact_root / job_id
         stem = Path(video_path).stem
         return (
             str(artifact_dir / f"{stem}.ja.srt"),
             str(artifact_dir / f"{stem}.zh.srt"),
         )
+
+    def list_job_ids_by_status(
+        self, *, job_ids: list[str], statuses: tuple[str, ...]
+    ) -> set[str]:
+        """返回给定 job_id 中状态命中的集合，用于批量清理判定。"""
+
+        if not job_ids or not statuses:
+            return set()
+        with self.db.connect() as conn:
+            id_placeholders = ",".join(["?"] * len(job_ids))
+            status_placeholders = ",".join(["?"] * len(statuses))
+            rows = conn.execute(
+                f"SELECT job_id FROM jobs WHERE job_id IN ({id_placeholders}) AND status IN ({status_placeholders})",
+                tuple(job_ids) + tuple(statuses),
+            ).fetchall()
+            return {str(row["job_id"]) for row in rows}
+
+    def is_job_completed_for_cleanup(
+        self, *, job_id: str, statuses: tuple[str, ...]
+    ) -> bool:
+        """按给定状态判定单个 job 是否可清理。"""
+
+        if not job_id or not statuses:
+            return False
+        with self.db.connect() as conn:
+            placeholders = ",".join(["?"] * len(statuses))
+            row = conn.execute(
+                f"SELECT 1 AS ok FROM jobs WHERE job_id=? AND status IN ({placeholders}) LIMIT 1",
+                (job_id, *statuses),
+            ).fetchone()
+            return row is not None
 
     def _build_effective_config(
         self, stage: str, overrides: dict | None = None

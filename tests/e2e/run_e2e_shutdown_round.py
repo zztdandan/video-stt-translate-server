@@ -176,6 +176,18 @@ def main(argv: list[str] | None = None) -> int:
 
         while time.time() < deadline:
             elapsed = int(time.time() - started)
+
+            code = server.poll()
+            if code is not None:
+                exit_code = 0 if shutdown_sent else 1
+                _append_log(
+                    monitor_log,
+                    "ROUND_EXIT "
+                    f"round={args.round} code={code} shutdown_sent={shutdown_sent} "
+                    f"at={datetime.now(timezone.utc).isoformat()}",
+                )
+                return exit_code
+
             if (not shutdown_sent) and elapsed >= args.shutdown_after_sec:
                 shutdown_sent = True
                 resp = session.post(
@@ -191,35 +203,38 @@ def main(argv: list[str] | None = None) -> int:
                     f"round={args.round} elapsed_sec={elapsed} payload={_safe_json(resp)}",
                 )
 
-            status_resp = session.get(
-                f"{args.base_url.rstrip('/')}/admin/shutdown/status",
-                headers=headers,
-                timeout=30,
-            )
-            status_payload = _safe_json(status_resp)
-            queue_resp = session.get(
-                f"{args.base_url.rstrip('/')}/queue/summary",
-                headers=headers,
-                timeout=30,
-            )
-            queue_payload = _safe_json(queue_resp)
+            try:
+                status_resp = session.get(
+                    f"{args.base_url.rstrip('/')}/admin/shutdown/status",
+                    headers=headers,
+                    timeout=30,
+                )
+                status_payload = _safe_json(status_resp)
+                queue_resp = session.get(
+                    f"{args.base_url.rstrip('/')}/queue/summary",
+                    headers=headers,
+                    timeout=30,
+                )
+                queue_payload = _safe_json(queue_resp)
+            except requests.RequestException as exc:
+                # shutdown 触发后服务可能在两次轮询间退出；此时按预期成功处理。
+                code = server.poll()
+                if shutdown_sent and code is not None:
+                    _append_log(
+                        monitor_log,
+                        "ROUND_EXIT "
+                        f"round={args.round} code={code} shutdown_sent={shutdown_sent} "
+                        f"at={datetime.now(timezone.utc).isoformat()} after_request_error={type(exc).__name__}",
+                    )
+                    return 0
+                raise
+
             _append_log(
                 monitor_log,
                 "ROUND_STATUS "
                 f"round={args.round} elapsed_sec={elapsed} shutdown={status_payload} "
                 f"queue={queue_payload.get('stages', {})}",
             )
-
-            code = server.poll()
-            if code is not None:
-                exit_code = 0 if shutdown_sent else 1
-                _append_log(
-                    monitor_log,
-                    "ROUND_EXIT "
-                    f"round={args.round} code={code} shutdown_sent={shutdown_sent} "
-                    f"at={datetime.now(timezone.utc).isoformat()}",
-                )
-                return exit_code
 
             time.sleep(max(args.poll_sec, 1))
     except Exception as exc:  # noqa: BLE001

@@ -50,6 +50,10 @@ def _fake_settings() -> Settings:
             db_path=Path("/tmp/test.db"),
             progress_ttl_sec=300,
             log_root=Path("/tmp/logs"),
+            artifact_root=Path("/tmp/artifacts"),
+            artifact_cleanup_enabled=True,
+            artifact_cleanup_interval_sec=3600,
+            artifact_cleanup_statuses=("succeeded",),
             model_path=Path("/tmp/model"),
         ),
         stt=SttSettings(

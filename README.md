@@ -1,4 +1,4 @@
-# video-stt-translate-server v0.3.0
+# video-stt-translate-server v0.4.0
 
 A local movie translation pipeline that combines `ffmpeg`, `Whisper/WhisperX`, and LLM subtitle translation in one DAG-based system.
 
@@ -14,12 +14,16 @@ This project unifies three core steps for end-to-end movie translation into one 
 
 Instead of isolated scripts, the service runs these stages as a DAG so jobs are traceable, restartable, and scalable for bulk video processing.
 
-## Key capabilities (v0.3.0)
+## Key capabilities (v0.4.0)
 
 - Script mode and service mode for single-video to large-batch workflows
 - Queue workers with default DAG and explicit DAG execution
 - WhisperX stage support (`stt_whisperx`) for local VAD + batched ASR + optional alignment
+- More aggressive WhisperX VAD defaults for better speech recall (`vad_onset=0.35`, `vad_offset=0.2`)
 - Subtitle copy-back (`[translation] copy_back`) to source video directories (`.ja.srt` and `.zh.srt`)
+- Global API token guard (`X-API-Token`) with admin drain shutdown endpoints
+- Graceful drain shutdown: stop claiming new tasks, finish in-flight tasks, then exit automatically
+- Hourly artifact cleanup scheduler for completed jobs to control disk usage
 - E2E drivers with deterministic exit reason logging (`E2E_EXIT ...`)
 
 ## Project layout
@@ -67,6 +71,7 @@ uv sync --group dev --group gpu
 3. If `config.ini` is missing, the service auto-generates it from `config.example.ini`.
 4. Missing required keys are logged as `section.option`.
 5. Set `[security] api_token` to enforce global API access control via `X-API-Token`.
+6. Runtime supports hourly artifact cleanup via `[runtime] artifact_cleanup_*` options.
 
 ## Three run modes
 
@@ -137,6 +142,13 @@ tail -f tmp/e2e/explicit_dag_monitor.log
 tail -f tmp/e2e/explicit_dag_nohup.log
 ```
 
+Round-based shutdown verification:
+
+```bash
+bash /home/base/repo/video-stt-whisper-server/scripts/run_shutdown_round.sh round1
+bash /home/base/repo/video-stt-whisper-server/scripts/run_shutdown_round.sh round2
+```
+
 Example monitor excerpt:
 
 ```text
@@ -159,6 +171,14 @@ uv run pytest -q
 - [x] `v0.1.0`: REST service baseline and pipeline scheduling
 - [x] `v0.2.0`: DAG planning, archive API, copy-back, and runtime knobs
 - [x] `v0.3.0`: WhisperX stage, explicit DAG E2E, deterministic E2E exits, interrupted-run recovery
+- [x] `v0.4.0`: global API token auth, graceful drain shutdown, round-based shutdown E2E, and hourly artifact cleanup scheduler
+
+### Delta since v0.3.0
+
+- WhisperX VAD defaults tuned for higher recall (`vad_onset=0.35`, `vad_offset=0.2`)
+- Translation prompts improved for repetitive filler-word denoising
+- New admin endpoints: `POST /admin/shutdown` and `GET /admin/shutdown/status`
+- Scheduler-based artifact cleanup for completed job directories
 
 ### Planned
 

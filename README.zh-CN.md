@@ -1,4 +1,4 @@
-# video-stt-translate-server v0.3.0
+# video-stt-translate-server v0.4.0
 
 面向批量电影翻译的本地流水线系统：将 `ffmpeg` 媒体处理、`Whisper/WhisperX` 语音转写、LLM 字幕翻译整合为一个可编排 DAG。
 
@@ -14,12 +14,16 @@
 
 服务层通过 DAG 组织任务依赖关系，支持批量视频流水线式处理，并通过 `job_id` / `task_id` 与阶段日志实现可追踪运行。
 
-## 功能概览（v0.3.0）
+## 功能概览（v0.4.0）
 
 - 支持脚本模式与服务模式，覆盖单视频到批量队列任务。
 - 支持显式 DAG 与默认 DAG 执行路径，WhisperX 可作为独立阶段接入。
+- WhisperX VAD 默认参数更激进（`vad_onset=0.35`、`vad_offset=0.2`），提升语音召回。
 - 支持字幕产物回写（`[translation] copy_back`），输出 `.ja.srt` 与 `.zh.srt`。
 - 支持可读任务 ID、任务归档、失败重试与中断续跑。
+- 支持全局 API Token 鉴权（`X-API-Token`）与安全停机接口。
+- 支持 drain 停机：停止领取新任务，等待在途任务完成后自动退出。
+- 支持小时级 artifact 自动清理（按已完成 job 清理目录，降低磁盘占用）。
 - 提供端到端验证脚本，支持轮询、超时、退出原因记录（`E2E_EXIT ...`）。
 
 ## 目录说明
@@ -67,6 +71,7 @@ uv sync --group dev --group gpu
 3. 服务启动时若 `config.ini` 不存在，会自动由 `config.example.ini` 生成。
 4. 若缺少必填项，日志会输出 `section.option` 形式的缺失键。
 5. 可在 `[security] api_token` 中配置全局 API 访问令牌（请求头 `X-API-Token`）。
+6. 可通过 `[runtime] artifact_cleanup_*` 配置开启小时级 artifact 自动清理。
 
 关键配置包括：worker 并发、超时、重试、模型路径、日志路径、LLM 接口配置。
 
@@ -139,6 +144,13 @@ tail -f tmp/e2e/explicit_dag_monitor.log
 tail -f tmp/e2e/explicit_dag_nohup.log
 ```
 
+分轮停机验证：
+
+```bash
+bash /home/base/repo/video-stt-whisper-server/scripts/run_shutdown_round.sh round1
+bash /home/base/repo/video-stt-whisper-server/scripts/run_shutdown_round.sh round2
+```
+
 典型监控日志片段（节选）：
 
 ```text
@@ -161,6 +173,14 @@ uv run pytest -q
 - [x] `v0.1.0`：REST API + 后台 worker + 基础流水线调度。
 - [x] `v0.2.0`：DAG 规划、任务配置快照、归档接口、字幕回写、STT 参数配置化。
 - [x] `v0.3.0`：WhisperX 阶段、显式 DAG E2E、确定性退出日志、中断续跑增强。
+- [x] `v0.4.0`：全局 API 鉴权、安全 drain 停机、分轮停机 E2E、小时级 artifact 清理调度。
+
+### 相比 v0.3.0 的增量
+
+- WhisperX VAD 默认参数调优（`vad_onset=0.35`、`vad_offset=0.2`）
+- 翻译提示词增强：重复口水词/无语义重复自动降噪
+- 新增管理接口：`POST /admin/shutdown`、`GET /admin/shutdown/status`
+- 新增按已完成 job 目录执行的定时 artifact 清理器
 
 ### 规划中
 

@@ -128,9 +128,11 @@ def build_app() -> FastAPI:
     settings, config_path = _resolve_settings()
     db_path = _resolve_runtime_path(config_path, settings.runtime.db_path)
     log_root = _resolve_runtime_path(config_path, settings.runtime.log_root)
+    artifact_root = _resolve_runtime_path(config_path, settings.runtime.artifact_root)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
+    artifact_root.mkdir(parents=True, exist_ok=True)
 
     db = Database(db_path)
     db.init_schema()
@@ -150,6 +152,7 @@ def build_app() -> FastAPI:
         },
         stage_effective_defaults=_build_stage_effective_defaults(settings, config_path),
         log_root=log_root,
+        artifact_root=artifact_root,
     )
     progress_store = ProgressStore(settings.runtime.progress_ttl_sec)
     model_path_cfg = _resolve_runtime_path(config_path, settings.runtime.model_path)

@@ -1,4 +1,4 @@
-"""WorkerRuntime 停机状态判断测试。"""
+"""artifact 小时级清理调度测试。"""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ from whisper_stt_service.repository import JobRepository
 from whisper_stt_service.service.runtime import WorkerRuntime
 
 
-def _settings() -> Settings:
-    """构造 runtime 逻辑测试用配置。"""
+def _settings(artifact_root: Path) -> Settings:
+    """构造开启 artifact 清理线程的最小配置。"""
 
     return Settings(
         workers=WorkerSettings(
@@ -49,7 +49,7 @@ def _settings() -> Settings:
             db_path=Path("/tmp/test.db"),
             progress_ttl_sec=300,
             log_root=Path("/tmp/logs"),
-            artifact_root=Path("/tmp/artifacts"),
+            artifact_root=artifact_root,
             artifact_cleanup_enabled=True,
             artifact_cleanup_interval_sec=3600,
             artifact_cleanup_statuses=("succeeded",),
@@ -93,44 +93,43 @@ def _settings() -> Settings:
     )
 
 
-def test_shutdown_status_can_exit_when_no_claimed(tmp_path: Path) -> None:
-    """drain 后若无 claimed/inflight，应立即满足退出条件。"""
+def test_artifact_cleanup_removes_only_succeeded_job_dirs(tmp_path: Path) -> None:
+    """仅已完成 job 的 artifact 目录会被清理。"""
+
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir(parents=True, exist_ok=True)
 
     db = Database(tmp_path / "q.db")
     db.init_schema()
-    repo = JobRepository(db)
+    repo = JobRepository(db, artifact_root=artifact_root)
+
+    done_job = repo.enqueue("/tmp/done.mp4", "ja").job_id
+    running_job = repo.enqueue("/tmp/running.mp4", "ja").job_id
+
+    with db.tx() as conn:
+        conn.execute(
+            "UPDATE jobs SET status='succeeded' WHERE job_id=?",
+            (done_job,),
+        )
+        conn.execute(
+            "UPDATE jobs SET status='running' WHERE job_id=?",
+            (running_job,),
+        )
+
+    (artifact_root / done_job).mkdir(parents=True, exist_ok=True)
+    (artifact_root / running_job).mkdir(parents=True, exist_ok=True)
+    (artifact_root / "job-unknown").mkdir(parents=True, exist_ok=True)
+
     runtime = WorkerRuntime(
         repo=repo,
         progress_store=ProgressStore(300),
-        settings=_settings(),
+        settings=_settings(artifact_root),
         config_path=tmp_path / "config.ini",
         model_path="/tmp/model",
     )
 
-    status = runtime.request_shutdown("unit_test")
-    assert status["drain_requested"] is True
-    assert status["can_exit"] is True
+    runtime._run_artifact_cleanup_once()
 
-
-def test_shutdown_status_blocks_exit_when_claimed_exists(tmp_path: Path) -> None:
-    """存在 claimed 任务时，drain 不应提前判定可退出。"""
-
-    db = Database(tmp_path / "q.db")
-    db.init_schema()
-    repo = JobRepository(db)
-    _ = repo.enqueue("/tmp/demo.mp4", "ja")
-    claimed = repo.claim_next(stage="extract", worker_id="w1", lease_timeout_sec=60)
-    assert claimed is not None
-
-    runtime = WorkerRuntime(
-        repo=repo,
-        progress_store=ProgressStore(300),
-        settings=_settings(),
-        config_path=tmp_path / "config.ini",
-        model_path="/tmp/model",
-    )
-
-    status = runtime.request_shutdown("unit_test")
-    assert status["drain_requested"] is True
-    assert status["claimed_count"] >= 1
-    assert status["can_exit"] is False
+    assert not (artifact_root / done_job).exists()
+    assert (artifact_root / running_job).exists()
+    assert (artifact_root / "job-unknown").exists()

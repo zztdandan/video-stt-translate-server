@@ -1,6 +1,6 @@
 [project]
 name = "video-stt-translate-server"
-version = "0.3.0"
+version = "0.4.0"
 description = "Whisper STT + translation service for queued video processing"
 readme = "README.md"
 requires-python = ">=3.10"
